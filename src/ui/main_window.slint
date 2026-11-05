@@ -1,0 +1,12 @@
+export component MainWindow inherits Window {
+    in property <image> img;
+
+    width: root.img.width * 1phx;
+    height: root.img.height * 1phx;
+
+    Image {
+        width: root.img.width * 1phx;
+        height: root.img.height * 1phx;
+        source: root.img;
+    }
+}
