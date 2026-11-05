@@ -3,10 +3,11 @@ import { ToolbarButton } from "toolbar_button.slint";
 export struct ToolDef { icon: image, name: string }
 
 export component Toolbar inherits Rectangle {
-    in-out property <int> selected;
+    in-out property <int> selected: -1;
+    in property <bool> selectable: true;
     in property <[ToolDef]> tools;
     // faint panel at rest, a bit stronger on hover
-    background: ta.has-hover ? #18181bb3 : #18181b59;
+    background: ta.has-hover ? #18181bb3 : #18181b38;
     border-radius: 8px;
     border-width: 1px;
     border-color: ta.has-hover ? #ffffff14 : #ffffff0a;
@@ -24,8 +25,8 @@ export component Toolbar inherits Rectangle {
             spacing: 1px;
             for tool[i] in root.tools: ToolbarButton {
                 icon: tool.icon;
-                active: i == root.selected;
-                clicked => { root.selected = i }
+                active: selectable ? i == root.selected : false;
+                clicked => { if selectable { root.selected = i } }
             }
         }
     }
