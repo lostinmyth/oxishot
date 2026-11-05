@@ -1,5 +1,7 @@
+import { Toolbar } from "toolbar/toolbar.slint";
 export component MainWindow inherits Window {
     in property <image> img;
+    out property <int> current-paint-tool: paintbar.selected;
 
     width: root.img.width * 1phx;
     height: root.img.height * 1phx;
@@ -9,4 +11,19 @@ export component MainWindow inherits Window {
         height: root.img.height * 1phx;
         source: root.img;
     }
-}
+
+    paintbar := Toolbar {
+        y: parent.height - self.height - 8px;
+        x: (parent.width - self.width) / 2;
+        tools: [
+            { icon: @image-url("../assets/icons/brush.svg"), name: "brush" },
+            { icon: @image-url("../assets/icons/square-dashed-text.svg"), name: "text" },
+            { icon: @image-url("../assets/icons/square.svg"), name: "rectangle" },
+            { icon: @image-url("../assets/icons/circle.svg"), name: "circle" },
+            { icon: @image-url("../assets/icons/move-up-right.svg"), name: "arrow" },
+            { icon: @image-url("../assets/icons/blur.svg"), name: "blur" },
+            { icon: @image-url("../assets/icons/eyedropper.svg"), name: "eyedropper" },
+            // TODO: we should add a final button for color picking.
+        ];
+        }
+    }

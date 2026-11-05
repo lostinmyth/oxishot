@@ -1,0 +1,34 @@
+export component ToolbarButton inherits Rectangle {
+    in property <image> icon;
+    in property <bool> active;
+    callback clicked();
+
+    width: 30px;
+    height: 30px;
+    border-radius: 5px;
+
+    background: root.active ? #3b82f6
+        : ta.pressed ? #ffffff1f
+        : ta.has-hover ? #ffffff12
+        : transparent;
+    animate background { duration: 90ms; }
+
+    Image {
+        source: root.icon;
+        width: ta.pressed ? 16px : 18px;
+        height: self.width;
+        animate width {
+            duration: 60ms;
+            easing: ease-out;
+        }
+        colorize: root.active ? #ffffff
+            : ta.has-hover ? #fafafa
+            : #a1a1aa;
+        animate colorize { duration: 90ms; }
+    }
+
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}

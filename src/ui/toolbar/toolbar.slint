@@ -1,0 +1,32 @@
+import { ToolbarButton } from "toolbar_button.slint";
+
+export struct ToolDef { icon: image, name: string }
+
+export component Toolbar inherits Rectangle {
+    in-out property <int> selected;
+    in property <[ToolDef]> tools;
+    // faint panel at rest, a bit stronger on hover
+    background: ta.has-hover ? #18181bb3 : #18181b59;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: ta.has-hover ? #ffffff14 : #ffffff0a;
+    drop-shadow-blur: 12px;
+    drop-shadow-offset-y: 2px;
+    drop-shadow-color: ta.has-hover ? #00000040 : #00000020;
+    animate background, border-color, drop-shadow-color { duration: 120ms; }
+
+    width: self.preferred-width;
+    height: self.preferred-height;
+
+    ta := TouchArea {
+        HorizontalLayout {
+            padding: 3px;
+            spacing: 1px;
+            for tool[i] in root.tools: ToolbarButton {
+                icon: tool.icon;
+                active: i == root.selected;
+                clicked => { root.selected = i }
+            }
+        }
+    }
+}
