@@ -1,13 +1,19 @@
+mod configuration;
+mod utils;
+
+use configuration::args::{Input, parse_args};
 use std::{env, fs};
 
 slint::include_modules!();
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let filename: String = env::args()
-        .nth(1)
-        .expect("please run it with filename such as; swagshot image.png");
+    let args = parse_args()?;
 
-    let screenshot = slint::Image::load_from_path(std::path::Path::new(&filename))?;
+    let screenshot = match args.input {
+        Input::Path(path) => slint::Image::load_from_path(&path)?,
+        Input::Stdin => utils::stdin::load_image_from_stdin()?,
+    };
+
     let screenshot_size = screenshot.size();
 
     let window = MainWindow::new()?;
