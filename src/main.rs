@@ -22,6 +22,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         screenshot_size.width,
         screenshot_size.height,
     ));
+
+    let actions = window.global::<Actions>();
+    actions.on_dispatch(|action| match action {
+        Action::Undo => { /* ... */ }
+        Action::Redo => { /* ... */ }
+        Action::Save => { /* ... */ }
+        Action::Copy => { /* ... */ }
+        Action::Exit => {
+            let _ = slint::quit_event_loop();
+        }
+        // paint tools: remember the current tool on the Rust side
+        tool => { /* self.current_tool = tool; */ }
+    });
+
     let _ = window.run();
 
     Ok(())

@@ -1,0 +1,6 @@
+export enum Action { redo, undo, save, copy, exit, brush, text, rectangle, circle, arrow, blur, eyedropper }
+
+export global Actions {
+    callback dispatch(Action);
+    in-out property <Action> current-tool: Action.brush;
+}

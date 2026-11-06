@@ -1,11 +1,14 @@
+import { Action, Actions } from "../actions.slint";
+
 import { ToolbarButton } from "toolbar_button.slint";
 
-export struct ToolDef { icon: image, name: string }
+export struct ToolDef { icon: image, name: string, action: Action }
 
 export component Toolbar inherits Rectangle {
-    in-out property <int> selected: -1;
+    in-out property <int> selected;
     in property <bool> selectable: true;
     in property <[ToolDef]> tools;
+
     // faint panel at rest, a bit stronger on hover
     background: ta.has-hover ? #18181bb3 : #18181b38;
     border-radius: 8px;
@@ -26,7 +29,10 @@ export component Toolbar inherits Rectangle {
             for tool[i] in root.tools: ToolbarButton {
                 icon: tool.icon;
                 active: selectable ? i == root.selected : false;
-                clicked => { if selectable { root.selected = i } }
+                clicked => {
+                    if selectable { root.selected = i; }
+                    Actions.dispatch(tool.action)
+                }
             }
         }
     }
