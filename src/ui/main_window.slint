@@ -1,7 +1,10 @@
 import { Toolbar } from "toolbar/toolbar.slint";
 
 import { Action, Actions } from "actions.slint";
+import { Canvas } from "canvas.slint";
+
 export { Actions, Action } from "./actions.slint";
+export { Canvas } from "canvas.slint";
 
 export component MainWindow inherits Window {
     in property <image> img;
@@ -12,7 +15,35 @@ export component MainWindow inherits Window {
     Image {
         width: root.img.width * 1phx;
         height: root.img.height * 1phx;
-        source: root.img;
+        source: Canvas.overlay;
+    }
+
+    Path {
+        width: root.img.width * 1phx;
+        height: root.img.height * 1phx;
+        viewbox-width: root.img.width;
+        viewbox-height: root.img.height;
+        commands: Canvas.live-path;
+        stroke: Canvas.brush-color;
+        stroke-width: Canvas.brush-radius * 2 * 1phx;
+        stroke-line-cap: round;
+    }
+
+    TouchArea {
+        enabled: Actions.current-tool == Action.brush;
+        mouse-cursor: crosshair;
+        pointer-event(e) => {
+            if e.button == PointerEventButton.left {
+                if e.kind == PointerEventKind.down {
+                    Canvas.begin(self.mouse-x / 1phx, self.mouse-y / 1phx);
+                } else if e.kind == PointerEventKind.up {
+                    Canvas.end();
+                }
+            }
+        }
+        moved => {
+            Canvas.extend(self.mouse-x / 1phx, self.mouse-y / 1phx);
+        }
     }
 
     redo_undo_bar := Toolbar {

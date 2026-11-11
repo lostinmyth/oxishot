@@ -30,7 +30,10 @@ export component Toolbar inherits Rectangle {
                 icon: tool.icon;
                 active: selectable ? i == root.selected : false;
                 clicked => {
-                    if selectable { root.selected = i; }
+                    if selectable {
+                        root.selected = i;
+                        Actions.current-tool = tool.action;
+                    }
                     Actions.dispatch(tool.action)
                 }
             }
