@@ -1,16 +1,12 @@
-use slint::{Rgba8Pixel, SharedPixelBuffer};
+use crate::shapes::Shape;
 
-pub struct Stroke {
-    pub points: Vec<(f32, f32)>,
-    pub color: Rgba8Pixel,
-    pub radius: f32,
-}
+use slint::{Rgba8Pixel, SharedPixelBuffer};
 
 pub struct Editor {
     pub layer: SharedPixelBuffer<Rgba8Pixel>,
-    pub history: Vec<Stroke>,
-    pub redo: Vec<Stroke>,
-    pub current: Option<Stroke>,
+    pub history: Vec<Shape>,
+    pub redo: Vec<Shape>,
+    pub current: Option<Shape>,
     pub live_path: String,
 }
 
@@ -25,13 +21,25 @@ impl Editor {
         }
     }
 
-    pub fn rasterize(&mut self, stroke: &Stroke) {
-        let pts = &stroke.points;
-        if pts.len() == 1 {
-            self.capsule(pts[0], pts[0], stroke.radius, stroke.color);
-        }
-        for w in pts.windows(2) {
-            self.capsule(w[0], w[1], stroke.radius, stroke.color);
+    pub fn rasterize(&mut self, shape: &Shape) {
+        match shape {
+            Shape::Stroke(stroke) => {
+                let pts = &stroke.points;
+                if pts.len() == 1 {
+                    self.capsule(pts[0], pts[0], stroke.radius, stroke.color);
+                }
+                for w in pts.windows(2) {
+                    self.capsule(w[0], w[1], stroke.radius, stroke.color);
+                }
+            }
+            Shape::Rectangle(rect) => {
+                let (x0, y0) = rect.a;
+                let (x1, y1) = rect.b;
+                let corners = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)];
+                for i in 0..4 {
+                    self.capsule(corners[i], corners[(i + 1) % 4], rect.radius, rect.color);
+                }
+            }
         }
     }
 
@@ -40,8 +48,9 @@ impl Editor {
         let pad = radius + 1.0;
         let x0 = ((a.0.min(b.0) - pad).floor() as i32).max(0);
         let y0 = ((a.1.min(b.1) - pad).floor() as i32).max(0);
-        let x1 = ((a.0.max(b.0) + pad).ceil() as i32).min(w - 1);
-        let y1 = ((a.1.max(b.1) + pad).ceil() as i32).max(h - 1);
+        // exclusive upper bounds (loops use x0..x1 / y0..y1)
+        let x1 = ((a.0.max(b.0) + pad).ceil() as i32).min(w);
+        let y1 = ((a.1.max(b.1) + pad).ceil() as i32).min(h);
 
         let (dx, dy) = (b.0 - a.0, b.1 - a.1);
         let len2 = (dx * dx + dy * dy).max(1e-6);

@@ -1,11 +1,15 @@
 mod configuration;
-mod state;
+mod editor;
+mod shapes;
 mod utils;
 
 use configuration::args::{Input, parse_args};
+use editor::Editor;
+use shapes::{rectangle::Rectangle, stroke::Stroke};
 use slint::Rgba8Pixel;
-use state::{Editor, Stroke};
 use std::{cell::RefCell, env, fmt::Write, rc::Rc};
+
+use crate::shapes::Shape;
 
 slint::include_modules!();
 
@@ -79,17 +83,41 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let c = win.global::<Canvas>();
             let mut ed = ed.borrow_mut();
             let col = c.get_brush_color();
-            ed.current = Some(Stroke {
-                points: vec![(x, y)],
-                color: Rgba8Pixel {
-                    r: col.red(),
-                    g: col.green(),
-                    b: col.blue(),
-                    a: col.alpha(),
-                },
-                radius: c.get_brush_radius(),
-            });
-            ed.live_path = format!("M {x} {y} L {x} {y}");
+            let tool = win.global::<Actions>().get_current_tool();
+            match tool {
+                Action::Brush => {
+                    ed.current = Some(shapes::Shape::Stroke(Stroke {
+                        points: vec![(x, y)],
+                        color: Rgba8Pixel {
+                            r: col.red(),
+                            g: col.green(),
+                            b: col.blue(),
+                            a: col.alpha(),
+                        },
+                        radius: c.get_brush_radius(),
+                    }));
+                    ed.live_path = format!("M {x} {y} L {x} {y}");
+                }
+                Action::Rectangle => {
+                    ed.current = Some(shapes::Shape::Rectangle(Rectangle {
+                        a: (x, y),
+                        b: (x, y),
+                        color: Rgba8Pixel {
+                            r: col.red(),
+                            g: col.green(),
+                            b: col.blue(),
+                            a: col.alpha(),
+                        },
+                        radius: c.get_brush_radius(),
+                    }));
+                    let ed = &mut *ed;
+                    let Some(shape) = ed.current.as_mut() else {
+                        return;
+                    };
+                    shape.write_preview(&mut ed.live_path);
+                }
+                _ => {}
+            }
             c.set_live_path(ed.live_path.as_str().into())
         }
     });
@@ -97,18 +125,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     canvas.on_extend({
         let (ed, win) = (editor.clone(), window.as_weak());
         move |x, y| {
-            let mut ed = ed.borrow_mut();
-            let Some(stroke) = ed.current.as_mut() else {
+            let mut guard = ed.borrow_mut();
+            let ed = &mut *guard;
+            let win = win.unwrap();
+            let Some(shape) = ed.current.as_mut() else {
                 return;
             };
-            let &(last_x, last_y) = stroke.points.last().unwrap();
-            if (x - last_x).powi(2) + (y - last_y).powi(2) < 1.0 {
-                return;
+
+            match shape {
+                Shape::Stroke(stroke) => {
+                    let &(last_x, last_y) = stroke.points.last().unwrap();
+                    if (x - last_x).powi(2) + (y - last_y).powi(2) < 1.0 {
+                        return;
+                    }
+                    stroke.points.push((x, y));
+                    let _ = write!(ed.live_path, " L {x} {y}");
+                }
+                Shape::Rectangle(rect) => {
+                    rect.b = (x, y);
+                    shape.write_preview(&mut ed.live_path);
+                }
             }
-            stroke.points.push((x, y));
-            let _ = write!(ed.live_path, " L {x} {y}");
-            win.unwrap()
-                .global::<Canvas>()
+            win.global::<Canvas>()
                 .set_live_path(ed.live_path.as_str().into());
         }
     });
@@ -117,11 +155,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let (ed, win) = (editor.clone(), window.as_weak());
         move || {
             let mut ed = ed.borrow_mut();
-            let Some(stroke) = ed.current.take() else {
+            let Some(shape) = ed.current.take() else {
                 return;
             };
-            ed.rasterize(&stroke);
-            ed.history.push(stroke);
+            ed.rasterize(&shape);
+            ed.history.push(shape);
             ed.redo.clear();
             push_overlay(&win, &ed);
             win.unwrap().global::<Canvas>().set_live_path("".into());

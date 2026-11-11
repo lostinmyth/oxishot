@@ -15,6 +15,12 @@ export component MainWindow inherits Window {
     Image {
         width: root.img.width * 1phx;
         height: root.img.height * 1phx;
+        source: root.img;
+    }
+
+    Image {
+        width: root.img.width * 1phx;
+        height: root.img.height * 1phx;
         source: Canvas.overlay;
     }
 
@@ -30,7 +36,7 @@ export component MainWindow inherits Window {
     }
 
     TouchArea {
-        enabled: Actions.current-tool == Action.brush;
+        enabled: Actions.current-tool == Action.brush || Actions.current-tool == Action.rectangle;
         mouse-cursor: crosshair;
         pointer-event(e) => {
             if e.button == PointerEventButton.left {
