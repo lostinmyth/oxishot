@@ -9,6 +9,13 @@ use std::{cell::RefCell, env, fmt::Write, rc::Rc};
 
 slint::include_modules!();
 
+fn push_overlay(win: &slint::Weak<MainWindow>, ed: &Editor) {
+    if let Some(win) = win.upgrade() {
+        win.global::<Canvas>()
+            .set_overlay(slint::Image::from_rgba8(ed.layer.clone()));
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = parse_args()?;
 
@@ -40,12 +47,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if let Some(stroke) = ed.history.pop() {
                         ed.redo.push(stroke);
                         ed.rebuild();
+                        push_overlay(&win, &ed);
                     }
                 }
                 Action::Redo => {
                     if let Some(stroke) = ed.redo.pop() {
                         ed.rasterize(&stroke);
                         ed.history.push(stroke);
+                        push_overlay(&win, &ed);
                     }
                 }
                 Action::Save => { /* ... */ }
@@ -107,7 +116,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     canvas.on_end({
         let (ed, win) = (editor.clone(), window.as_weak());
         move || {
-            let win = win.unwrap();
             let mut ed = ed.borrow_mut();
             let Some(stroke) = ed.current.take() else {
                 return;
@@ -115,9 +123,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ed.rasterize(&stroke);
             ed.history.push(stroke);
             ed.redo.clear();
-            let c = win.global::<Canvas>();
-            c.set_overlay(slint::Image::from_rgba8(ed.layer.clone()));
-            c.set_live_path("".into());
+            push_overlay(&win, &ed);
+            win.unwrap().global::<Canvas>().set_live_path("".into());
         }
     });
 
