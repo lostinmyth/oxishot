@@ -1,5 +1,6 @@
 mod configuration;
 mod editor;
+mod raster;
 mod shapes;
 mod utils;
 
@@ -16,7 +17,7 @@ slint::include_modules!();
 fn push_overlay(win: &slint::Weak<MainWindow>, ed: &Editor) {
     if let Some(win) = win.upgrade() {
         win.global::<Canvas>()
-            .set_overlay(slint::Image::from_rgba8(ed.layer.clone()));
+            .set_overlay(slint::Image::from_rgba8(ed.layer.buf.clone()));
     }
 }
 
