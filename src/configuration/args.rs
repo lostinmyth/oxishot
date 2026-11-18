@@ -30,11 +30,11 @@ pub fn parse_args() -> Result<Args, lexopt::Error> {
                 output = Some(p.value()?.into());
             }
             Short('h') | Long("help") => {
-                print_help(p.bin_name().unwrap_or("swagshot"));
+                print_help(p.bin_name().unwrap_or("oxishot"));
                 std::process::exit(0)
             }
             Short('v') | Long("version") => {
-                println!("swagshot {}", env!("CARGO_PKG_VERSION"));
+                println!("oxishot {}", env!("CARGO_PKG_VERSION"));
                 std::process::exit(0)
             }
             Value(v) if input.is_none() => input = Some(Input::Path(v.into())),
@@ -46,7 +46,7 @@ pub fn parse_args() -> Result<Args, lexopt::Error> {
         if !std::io::stdin().is_terminal() {
             Input::Stdin
         } else {
-            print_help(p.bin_name().unwrap_or("swagshot"));
+            print_help(p.bin_name().unwrap_or("oxishot"));
             std::process::exit(0)
         }
     });

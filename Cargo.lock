@@ -3215,6 +3215,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxishot"
+version = "0.1.0"
+dependencies = [
+ "arboard",
+ "lexopt",
+ "parley",
+ "png",
+ "rfd",
+ "slint",
+ "slint-build",
+ "swash",
+]
+
+[[package]]
 name = "parking"
 version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4273,20 +4287,6 @@ checksum = "695b5790b3131dafa99b3bbfd25a216edb3d216dad9ca208d4657bfb8f2abc3d"
 dependencies = [
  "kurbo",
  "siphasher",
-]
-
-[[package]]
-name = "swagshot"
-version = "0.1.0"
-dependencies = [
- "arboard",
- "lexopt",
- "parley",
- "png",
- "rfd",
- "slint",
- "slint-build",
- "swash",
 ]
 
 [[package]]
