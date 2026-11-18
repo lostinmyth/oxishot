@@ -1,4 +1,4 @@
-use crate::shapes::{Draw, Point, Style};
+use crate::shapes::{Draw, Point, Style, corner_bounds, offset, seg_dist};
 use std::fmt::Write;
 
 /// Ellipse inscribed in the rectangle spanned by `a` and `b`.
@@ -43,5 +43,29 @@ impl Draw for Circle {
     fn rasterize(&self, layer: &mut crate::raster::Layer) {
         let (c, r) = self.geometry();
         layer.ellipse(c, r, self.style);
+    }
+
+    fn hit(&self, p: Point, tol: f32) -> bool {
+        let ((cx, cy), (rx, ry)) = self.geometry();
+        let reach = self.style.radius + tol;
+        // flat ellipse: rasterized as a line, so hit-test it as one
+        if rx < 0.5 || ry < 0.5 {
+            return seg_dist(p, (cx - rx, cy - ry), (cx + rx, cy + ry)) <= reach;
+        }
+        // same first-order distance estimate as Layer::ellipse
+        let (ux, uy) = ((p.0 - cx) / rx, (p.1 - cy) / ry);
+        let k0 = (ux * ux + uy * uy).sqrt();
+        let (vx, vy) = (ux / rx, uy / ry);
+        let k1 = (vx * vx + vy * vy).sqrt();
+        k1 > 1e-6 && (k0 * (k0 - 1.0) / k1).abs() <= reach
+    }
+
+    fn bounds(&self) -> (Point, Point) {
+        corner_bounds(self.a, self.b, self.style.radius)
+    }
+
+    fn translate(&mut self, d: Point) {
+        offset(&mut self.a, d);
+        offset(&mut self.b, d);
     }
 }

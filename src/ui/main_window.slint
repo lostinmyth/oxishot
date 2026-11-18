@@ -2,10 +2,10 @@ import { Toolbar } from "toolbar/toolbar.slint";
 import "../assets/fonts/DejaVuSans.ttf";
 
 import { Action, Actions } from "actions.slint";
-import { Canvas } from "canvas.slint";
+import { Canvas, SelectionMode } from "canvas.slint";
 
 export { Actions, Action } from "./actions.slint";
-export { Canvas } from "canvas.slint";
+export { Canvas, SelectionBox, DragOffset, SelectionMode } from "canvas.slint";
 
 export component MainWindow inherits Window {
     in property <image> img;
@@ -18,7 +18,10 @@ export component MainWindow inherits Window {
 
     // switching tools (e.g. via the toolbar) commits pending text
     property <Action> tool: Actions.current-tool;
-    changed tool => { root.commit-text(); }
+    changed tool => {
+        root.commit-text();
+        if root.tool != Action.select { Actions.dispatch(Action.deselect); }
+    }
 
     function commit-text() {
         if root.typing && text-editor.text != "" {
@@ -48,6 +51,37 @@ export component MainWindow inherits Window {
         source: Canvas.overlay;
     }
 
+    Image {
+        x: Canvas.drag-offset.x * 1phx;
+        y: Canvas.drag-offset.y * 1phx;
+        width: root.img.width * 1phx;
+        height: root.img.height * 1phx;
+        source: Canvas.drag-overlay;
+        visible: Canvas.dragging;
+    }
+
+    // the 3 here must match SEL_PAD in editor.rs (clicks inside this box hit the shape)
+    for b in Canvas.selection: Rectangle {
+        x: (b.x + (Canvas.dragging ? Canvas.drag-offset.x : 0) - 3) * 1phx;
+        y: (b.y + (Canvas.dragging ? Canvas.drag-offset.y : 0) - 3) * 1phx;
+        width: (b.width + 3 * 2) * 1phx;
+        height: (b.height + 3 * 2) * 1phx;
+        border-width: 1px;
+        border-color: #3b82f6;
+        border-radius: 2px;
+        background: #3b82f60f;
+    }
+
+    if Canvas.has-marquee: Rectangle {
+        x: Canvas.marquee.x * 1phx;
+        y: Canvas.marquee.y * 1phx;
+        width: Canvas.marquee.width * 1phx;
+        height: Canvas.marquee.height * 1phx;
+        border-width: 1px;
+        border-color: #3b82f6cc;
+        background: #3b82f61a;
+    }
+
     Path {
         width: root.img.width * 1phx;
         height: root.img.height * 1phx;
@@ -60,8 +94,10 @@ export component MainWindow inherits Window {
     }
 
     TouchArea {
-        enabled: Actions.current-tool == Action.brush || Actions.current-tool == Action.text || Actions.current-tool == Action.rectangle || Actions.current-tool == Action.circle || Actions.current-tool == Action.arrow;
-        mouse-cursor: Actions.current-tool == Action.text ? MouseCursor.text : MouseCursor.crosshair;
+        enabled: Actions.current-tool == Action.select || Actions.current-tool == Action.brush || Actions.current-tool == Action.text || Actions.current-tool == Action.rectangle || Actions.current-tool == Action.circle || Actions.current-tool == Action.arrow;
+        mouse-cursor: Actions.current-tool == Action.text ? MouseCursor.text
+            : Actions.current-tool == Action.select ? (Canvas.dragging ? MouseCursor.grabbing : MouseCursor.default)
+            : MouseCursor.crosshair;
         pointer-event(e) => {
             if e.button == PointerEventButton.left {
                 if e.kind == PointerEventKind.down && Actions.current-tool == Action.text {
@@ -71,10 +107,15 @@ export component MainWindow inherits Window {
                     root.text-y = self.mouse-y;
                     root.typing = true;
                     text-editor.focus();
+                } else if e.kind == PointerEventKind.down && Actions.current-tool == Action.select {
+                    Canvas.select-begin(self.mouse-x / 1phx, self.mouse-y / 1phx,
+                        e.modifiers.control ? SelectionMode.remove
+                        : e.modifiers.shift ? SelectionMode.add
+                        : SelectionMode.replace);
                 } else if e.kind == PointerEventKind.down {
                     Canvas.begin(self.mouse-x / 1phx, self.mouse-y / 1phx);
                 } else if e.kind == PointerEventKind.up {
-                    Canvas.end();
+                    Canvas.end(self.mouse-x / 1phx, self.mouse-y / 1phx);
                 }
             }
         }
@@ -134,6 +175,11 @@ export component MainWindow inherits Window {
         y: parent.height - self.height - 8px;
         x: (parent.width - self.width) / 2;
         tools: [
+            {
+                icon: @image-url("../assets/icons/mouse-pointer.svg"),
+                name: "select",
+                action: Action.select
+            },
             { icon: @image-url("../assets/icons/brush.svg"), name: "brush", action: Action.brush },
             {
                 icon: @image-url("../assets/icons/square-dashed-text.svg"),
@@ -170,8 +216,18 @@ export component MainWindow inherits Window {
                 if event.modifiers.control {
                     if event.text == "z" { Actions.dispatch(Action.undo); return accept; }
                     if event.text == "y" { Actions.dispatch(Action.redo); return accept; }
+                    if event.text == "a" {
+                        Actions.current-tool = Action.select;
+                        Actions.dispatch(Action.select-all);
+                        return accept;
+                    }
                     return reject;
                 }
+                if Actions.current-tool == Action.select {
+                    if event.text == Key.Delete || event.text == Key.Backspace { Actions.dispatch(Action.delete); return accept; }
+                    if event.text == Key.Escape { Actions.dispatch(Action.deselect); return accept; }
+                }
+                if event.text == "v" { Actions.current-tool = Action.select; return accept; }
                 if event.text == "b" { Actions.current-tool = Action.brush; return accept; }
                 if event.text == "t" { Actions.current-tool = Action.text; return accept; }
                 if event.text == "r" { Actions.current-tool = Action.rectangle; return accept; }

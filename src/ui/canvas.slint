@@ -1,11 +1,26 @@
+export struct SelectionBox { x: float, y: float, width: float, height: float }
+export struct DragOffset { x: float, y: float }
+// how a select-tool press combines with the current selection (shift adds, ctrl removes)
+export enum SelectionMode { replace, add, remove }
+
 export global Canvas {
     callback begin(float, float);
     callback extend(float, float);
-    callback end();
+    callback end(float, float);
+    callback select-begin(float, float, SelectionMode);
     callback commit-text(float, float, string);
 
     in property <string> live-path;
     in property <image> overlay;
+
+    // select tool: the lifted shape is drawn alone in drag-overlay and
+    // shifted by drag-offset, so dragging never re-rasterizes anything
+    in property <image> drag-overlay;
+    in property <bool> dragging;
+    in property <DragOffset> drag-offset;
+    in property <[SelectionBox]> selection;
+    in property <bool> has-marquee;
+    in property <SelectionBox> marquee;
     in property <color> brush-color: #ef4444;
     in property <float> brush-radius: 3;
     in property <float> font-size: 24;

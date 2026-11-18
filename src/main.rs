@@ -5,9 +5,9 @@ mod shapes;
 mod utils;
 
 use configuration::args::{Input, parse_args};
-use editor::Editor;
+use editor::{Bounds, Editor, SelectMode};
 use shapes::{arrow::Arrow, circle::Circle, rectangle::Rectangle, stroke::Stroke, text::Text};
-use slint::Rgba8Pixel;
+use slint::{ModelRc, Rgba8Pixel, VecModel};
 use std::{cell::RefCell, env, rc::Rc};
 
 use crate::shapes::{Point, Shape, Style};
@@ -38,6 +38,29 @@ fn push_overlay(win: &slint::Weak<MainWindow>, ed: &Editor) {
         win.global::<Canvas>()
             .set_overlay(slint::Image::from_rgba8(ed.layer.buf.clone()));
     }
+    push_selection(win, ed);
+}
+
+fn to_box(((x0, y0), (x1, y1)): Bounds) -> SelectionBox {
+    SelectionBox {
+        x: x0,
+        y: y0,
+        width: x1 - x0,
+        height: y1 - y0,
+    }
+}
+
+/// Mirrors the selection boxes, marquee and drag state into the UI.
+fn push_selection(win: &slint::Weak<MainWindow>, ed: &Editor) {
+    let Some(win) = win.upgrade() else { return };
+    let c = win.global::<Canvas>();
+    let boxes: Vec<_> = ed.selection_bounds().into_iter().map(to_box).collect();
+    c.set_selection(ModelRc::new(VecModel::from(boxes)));
+    c.set_has_marquee(ed.marquee().is_some());
+    if let Some(m) = ed.marquee() {
+        c.set_marquee(to_box(m));
+    }
+    c.set_dragging(ed.dragging());
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -77,6 +100,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         push_overlay(&win, &ed);
                     }
                 }
+                Action::Delete => {
+                    if ed.delete_selected() {
+                        push_overlay(&win, &ed);
+                    }
+                }
+                Action::SelectAll => {
+                    ed.select_all();
+                    push_selection(&win, &ed);
+                }
+                Action::Deselect => {
+                    if ed.deselect() {
+                        push_selection(&win, &ed);
+                    }
+                }
                 Action::Save => { /* ... */ }
                 Action::Copy => { /* ... */ }
                 Action::Exit => {
@@ -111,12 +148,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    canvas.on_select_begin({
+        let (ed, win) = (editor.clone(), window.as_weak());
+        move |x, y, mode| {
+            let mode = match mode {
+                SelectionMode::Replace => SelectMode::Replace,
+                SelectionMode::Add => SelectMode::Add,
+                SelectionMode::Remove => SelectMode::Remove,
+            };
+            let mut ed = ed.borrow_mut();
+            if ed.press((x, y), mode) {
+                if let Some(w) = win.upgrade() {
+                    let c = w.global::<Canvas>();
+                    c.set_drag_offset(DragOffset { x: 0.0, y: 0.0 });
+                    c.set_drag_overlay(slint::Image::from_rgba8(ed.drag_layer.buf.clone()));
+                }
+                push_overlay(&win, &ed);
+            } else {
+                push_selection(&win, &ed);
+            }
+        }
+    });
+
     canvas.on_extend({
         let (ed, win) = (editor.clone(), window.as_weak());
         move |x, y| {
             let mut guard = ed.borrow_mut();
             let ed = &mut *guard;
             let win = win.unwrap();
+
+            if let Some((dx, dy)) = ed.drag_offset((x, y)) {
+                win.global::<Canvas>()
+                    .set_drag_offset(DragOffset { x: dx, y: dy });
+                return;
+            }
+            if ed.marquee_to((x, y)) {
+                push_selection(&win.as_weak(), ed);
+                return;
+            }
 
             if ed.extend((x, y)) {
                 win.global::<Canvas>()
@@ -127,8 +196,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     canvas.on_end({
         let (ed, win) = (editor.clone(), window.as_weak());
-        move || {
+        move |x, y| {
             let mut ed = ed.borrow_mut();
+
+            let had_marquee = ed.marquee().is_some();
+            if ed.release((x, y)) {
+                push_overlay(&win, &ed);
+                return;
+            }
+            if had_marquee {
+                push_selection(&win, &ed);
+                return;
+            }
 
             if ed.end() {
                 push_overlay(&win, &ed);

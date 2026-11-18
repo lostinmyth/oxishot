@@ -1,4 +1,4 @@
-use crate::shapes::{Draw, Point, Style};
+use crate::shapes::{Draw, Point, Style, corner_bounds, offset, seg_dist};
 use std::fmt::Write;
 
 pub struct Arrow {
@@ -56,5 +56,30 @@ impl Draw for Arrow {
             layer.capsule(w1, self.b, self.style);
             layer.capsule(w2, self.b, self.style);
         }
+    }
+
+    fn hit(&self, p: Point, tol: f32) -> bool {
+        let r = self.style.radius + tol;
+        seg_dist(p, self.a, self.b) <= r
+            || self
+                .wings()
+                .is_some_and(|(w1, w2)| seg_dist(p, w1, self.b) <= r || seg_dist(p, w2, self.b) <= r)
+    }
+
+    fn bounds(&self) -> (Point, Point) {
+        let (mut lo, mut hi) = corner_bounds(self.a, self.b, self.style.radius);
+        if let Some((w1, w2)) = self.wings() {
+            for w in [w1, w2] {
+                let (wlo, whi) = corner_bounds(w, w, self.style.radius);
+                lo = (lo.0.min(wlo.0), lo.1.min(wlo.1));
+                hi = (hi.0.max(whi.0), hi.1.max(whi.1));
+            }
+        }
+        (lo, hi)
+    }
+
+    fn translate(&mut self, d: Point) {
+        offset(&mut self.a, d);
+        offset(&mut self.b, d);
     }
 }
