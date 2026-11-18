@@ -6,7 +6,7 @@ mod utils;
 
 use configuration::args::{Input, parse_args};
 use editor::Editor;
-use shapes::{circle::Circle, rectangle::Rectangle, stroke::Stroke};
+use shapes::{arrow::Arrow, circle::Circle, rectangle::Rectangle, stroke::Stroke};
 use slint::Rgba8Pixel;
 use std::{cell::RefCell, env, rc::Rc};
 
@@ -28,6 +28,7 @@ fn shape_for(tool: Action, p: Point, style: Style) -> Option<Shape> {
         Action::Brush => Shape::Stroke(Stroke::new(p, style)),
         Action::Rectangle => Shape::Rectangle(Rectangle::new(p, style)),
         Action::Circle => Shape::Circle(Circle::new(p, style)),
+        Action::Arrow => Shape::Arrow(Arrow::new(p, style)),
         _ => return None,
     })
 }

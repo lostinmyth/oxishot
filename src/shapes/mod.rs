@@ -1,7 +1,9 @@
+pub mod arrow;
 pub mod circle;
 pub mod rectangle;
 pub mod stroke;
 
+use arrow::Arrow;
 use circle::Circle;
 use rectangle::Rectangle;
 use slint::Rgba8Pixel;
@@ -27,6 +29,7 @@ pub enum Shape {
     Stroke(Stroke),
     Rectangle(Rectangle),
     Circle(Circle),
+    Arrow(Arrow),
 }
 
 impl Shape {
@@ -35,6 +38,7 @@ impl Shape {
             Shape::Stroke(s) => s,
             Shape::Rectangle(r) => r,
             Shape::Circle(c) => c,
+            Shape::Arrow(a) => a,
         }
     }
 
@@ -43,6 +47,7 @@ impl Shape {
             Shape::Stroke(s) => s,
             Shape::Rectangle(r) => r,
             Shape::Circle(c) => c,
+            Shape::Arrow(a) => a,
         }
     }
 
