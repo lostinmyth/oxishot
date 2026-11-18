@@ -198,9 +198,10 @@ export component MainWindow inherits Window {
         y: 8px;
         x: 8px;
         selectable: false;
+        view-width: parent.width;
         tools: [
-            { icon: @image-url("../assets/icons/undo.svg"), name: "undo", action: Action.undo },
-            { icon: @image-url("../assets/icons/redo.svg"), name: "redo", action: Action.redo },
+            { icon: @image-url("../assets/icons/undo.svg"), name: "Undo", shortcut: "Ctrl+Z", action: Action.undo },
+            { icon: @image-url("../assets/icons/redo.svg"), name: "Redo", shortcut: "Ctrl+Y", action: Action.redo },
         ];
     }
 
@@ -208,47 +209,50 @@ export component MainWindow inherits Window {
         y: 0 + 8px;
         x: (parent.width - self.width - 8px);
         selectable: false;
+        view-width: parent.width;
         tools: [
-            { icon: @image-url("../assets/icons/save.svg"), name: "save", action: Action.save },
-            { icon: @image-url("../assets/icons/copy.svg"), name: "copy", action: Action.copy },
-            { icon: @image-url("../assets/icons/cancel.svg"), name: "exit", action: Action.exit },
+            { icon: @image-url("../assets/icons/save.svg"), name: "Save", shortcut: "Ctrl+S", action: Action.save },
+            { icon: @image-url("../assets/icons/copy.svg"), name: "Copy", shortcut: "Ctrl+C", action: Action.copy },
+            { icon: @image-url("../assets/icons/cancel.svg"), name: "Exit", shortcut: "", action: Action.exit },
         ];
     }
 
     paintbar := Toolbar {
         y: parent.height - self.height - 8px;
         x: (parent.width - self.width) / 2;
+        tips-above: true;
+        view-width: parent.width;
         tools: [
             {
                 icon: @image-url("../assets/icons/mouse-pointer.svg"),
-                name: "select",
+                name: "Select", shortcut: "V",
                 action: Action.select
             },
-            { icon: @image-url("../assets/icons/brush.svg"), name: "brush", action: Action.brush },
+            { icon: @image-url("../assets/icons/brush.svg"), name: "Brush", shortcut: "B", action: Action.brush },
             {
                 icon: @image-url("../assets/icons/square-dashed-text.svg"),
-                name: "text",
+                name: "Text", shortcut: "T",
                 action: Action.text
             },
             {
                 icon: @image-url("../assets/icons/square.svg"),
-                name: "rectangle",
+                name: "Rectangle", shortcut: "R",
                 action: Action.rectangle
             },
             {
                 icon: @image-url("../assets/icons/circle.svg"),
-                name: "circle",
+                name: "Circle", shortcut: "O",
                 action: Action.circle
             },
             {
                 icon: @image-url("../assets/icons/move-up-right.svg"),
-                name: "arrow",
+                name: "Arrow", shortcut: "A",
                 action: Action.arrow
             },
-            { icon: @image-url("../assets/icons/blur.svg"), name: "blur", action: Action.blur },
+            { icon: @image-url("../assets/icons/blur.svg"), name: "Blur", shortcut: "", action: Action.blur },
             {
                 icon: @image-url("../assets/icons/eyedropper.svg"),
-                name: "eyedropper",
+                name: "Eyedropper", shortcut: "",
                 action: Action.eyedropper
             },
             // TODO: we should add a final button for color picking.

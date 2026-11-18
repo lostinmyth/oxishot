@@ -1,6 +1,7 @@
 export component ToolbarButton inherits Rectangle {
     in property <image> icon;
     in property <bool> active;
+    out property <bool> hovered: ta.has-hover;
     callback clicked();
 
     width: 30px;
