@@ -10,7 +10,7 @@ use shapes::{arrow::Arrow, circle::Circle, rectangle::Rectangle, stroke::Stroke,
 use slint::{ModelRc, Rgba8Pixel, VecModel};
 use std::{cell::RefCell, env, rc::Rc};
 
-use crate::shapes::{Point, Shape, Style};
+use crate::shapes::{Frame, Point, Shape, Style};
 
 slint::include_modules!();
 
@@ -47,6 +47,18 @@ fn to_box(((x0, y0), (x1, y1)): Bounds) -> SelectionBox {
         y: y0,
         width: x1 - x0,
         height: y1 - y0,
+        angle: 0.0,
+    }
+}
+
+fn frame_box(f: Frame) -> SelectionBox {
+    let ((cx, cy), (hx, hy)) = (f.center, f.half);
+    SelectionBox {
+        x: cx - hx,
+        y: cy - hy,
+        width: hx * 2.0,
+        height: hy * 2.0,
+        angle: f.angle.to_degrees(),
     }
 }
 
@@ -54,13 +66,16 @@ fn to_box(((x0, y0), (x1, y1)): Bounds) -> SelectionBox {
 fn push_selection(win: &slint::Weak<MainWindow>, ed: &Editor) {
     let Some(win) = win.upgrade() else { return };
     let c = win.global::<Canvas>();
-    let boxes: Vec<_> = ed.selection_bounds().into_iter().map(to_box).collect();
+    let boxes: Vec<_> = ed.selection_frames().into_iter().map(frame_box).collect();
     c.set_selection(ModelRc::new(VecModel::from(boxes)));
     c.set_has_marquee(ed.marquee().is_some());
     if let Some(m) = ed.marquee() {
         c.set_marquee(to_box(m));
     }
     c.set_dragging(ed.dragging());
+    c.set_rotating(ed.rotating());
+    // the corners may have moved; the next hover recomputes this
+    c.set_rotate_hover(false);
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -160,7 +175,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if ed.press((x, y), mode) {
                 if let Some(w) = win.upgrade() {
                     let c = w.global::<Canvas>();
-                    c.set_drag_offset(DragOffset { x: 0.0, y: 0.0 });
+                    c.set_drag_offset(Vec2 { x: 0.0, y: 0.0 });
+                    c.set_drag_angle(0.0);
                     c.set_drag_overlay(slint::Image::from_rgba8(ed.drag_layer.buf.clone()));
                 }
                 push_overlay(&win, &ed);
@@ -179,7 +195,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             if let Some((dx, dy)) = ed.drag_offset((x, y)) {
                 win.global::<Canvas>()
-                    .set_drag_offset(DragOffset { x: dx, y: dy });
+                    .set_drag_offset(Vec2 { x: dx, y: dy });
+                return;
+            }
+            if let Some(((px, py), angle)) = ed.rotate_to((x, y)) {
+                let c = win.global::<Canvas>();
+                c.set_drag_pivot(Vec2 { x: px, y: py });
+                c.set_drag_angle(angle.to_degrees());
+                push_selection(&win.as_weak(), ed); // boxes turn with the shapes
                 return;
             }
             if ed.marquee_to((x, y)) {
@@ -216,6 +239,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    canvas.on_hover({
+        let (ed, win) = (editor.clone(), window.as_weak());
+        move |x, y| {
+            let Some(w) = win.upgrade() else { return };
+            let c = w.global::<Canvas>();
+            let zone = ed.borrow().rotate_zone((x, y));
+            c.set_rotate_hover(zone.is_some());
+            if let Some(a) = zone {
+                c.set_rotate_cursor(a.to_degrees());
+            }
+        }
+    });
+
     canvas.on_commit_text({
         let (ed, win) = (editor.clone(), window.as_weak());
         move |x, y, text| {
@@ -225,6 +261,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 pos: (x, y),
                 text: text.to_string(),
                 size: c.get_font_size(),
+                angle: 0.0,
                 style: Style {
                     color: to_px(c.get_brush_color()),
                     radius: 0.0,

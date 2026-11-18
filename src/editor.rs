@@ -1,6 +1,6 @@
 use crate::{
     raster::Layer,
-    shapes::{Point, Shape},
+    shapes::{Frame, Point, Shape, points_bounds},
 };
 
 /// A reversible change to `Editor::shapes`. Applying one returns the op
@@ -10,6 +10,8 @@ pub enum Op {
     Insert(Vec<(usize, Shape)>),
     Remove(Vec<usize>),
     Move(Vec<usize>, Point),
+    /// Rotate by an angle (radians) about a pivot.
+    Rotate(Vec<usize>, Point, f32),
 }
 
 /// How a select-tool press combines with the existing selection.
@@ -25,15 +27,27 @@ pub type Bounds = (Point, Point);
 enum Gesture {
     Idle,
     /// Dragging the selected shapes, which are lifted onto `drag_layer`.
-    Move { from: Point },
+    Move {
+        from: Point,
+    },
+    /// Rotating the selected shapes about `pivot`, grabbed just outside a
+    /// corner; they're lifted onto `drag_layer` just like a move. `start` is
+    /// the press point's angle around the pivot. `frames` holds the selected
+    /// shapes' frames at the start, so the boxes can turn without touching shapes.
+    Rotate {
+        pivot: Point,
+        start: f32,
+        angle: f32,
+        frames: Vec<Frame>,
+    },
     /// Rubber-band selection. `base` is the selection before it started and
-    /// `bounds` caches every shape's bounds so moving the box stays cheap.
+    /// `frames` caches every shape's frame so moving the box stays cheap.
     Marquee {
         from: Point,
         to: Point,
         mode: SelectMode,
         base: Vec<usize>,
-        bounds: Vec<Bounds>,
+        frames: Vec<Frame>,
     },
 }
 
@@ -42,6 +56,8 @@ const HIT_TOL: f32 = 4.0;
 /// How far the UI draws a selection box outside the shape's bounds;
 /// clicks anywhere inside that box hit the selected shape.
 pub const SEL_PAD: f32 = 3.0;
+/// How far (px) outside a selection box's corner still grabs it for rotating.
+const ROTATE_REACH: f32 = 14.0;
 /// A marquee smaller than this (px, both axes) is treated as a click and selects nothing.
 const MARQUEE_MIN: f32 = 3.0;
 
@@ -145,6 +161,13 @@ impl Editor {
                 self.rebuild();
                 Op::Move(idx, (-dx, -dy))
             }
+            Op::Rotate(idx, pivot, angle) => {
+                for &i in &idx {
+                    self.shapes[i].rotate(pivot, angle);
+                }
+                self.rebuild();
+                Op::Rotate(idx, pivot, -angle)
+            }
         }
     }
 
@@ -179,12 +202,25 @@ impl Editor {
     /// Select-tool press at `p`. Returns whether the layers changed
     /// (a drag started, so shapes were lifted onto `drag_layer`).
     pub fn press(&mut self, p: Point, mode: SelectMode) -> bool {
+        if self.rotate_zone(p).is_some() {
+            let frames = self.selection_frames();
+            let ((x0, y0), (x1, y1)) =
+                points_bounds(frames.iter().flat_map(|f| f.corners(0.0)), 0.0);
+            let pivot = ((x0 + x1) * 0.5, (y0 + y1) * 0.5);
+            let start = (p.1 - pivot.1).atan2(p.0 - pivot.0);
+            self.gesture = Gesture::Rotate {
+                pivot,
+                start,
+                angle: 0.0,
+                frames,
+            };
+            self.lift();
+            return true;
+        }
+
         // selected shapes are hit anywhere inside their selection box;
         // everything else only on its painted outline
-        let in_box = |i: usize| {
-            let ((x0, y0), (x1, y1)) = self.shapes[i].bounds();
-            p.0 >= x0 - SEL_PAD && p.0 <= x1 + SEL_PAD && p.1 >= y0 - SEL_PAD && p.1 <= y1 + SEL_PAD
-        };
+        let in_box = |i: usize| self.shapes[i].frame().contains(p, SEL_PAD);
         let hit = (self.selected.iter().rev().copied().find(|&i| in_box(i)))
             .or_else(|| self.shapes.iter().rposition(|s| s.hit(p, HIT_TOL)));
         let Some(i) = hit else {
@@ -196,7 +232,7 @@ impl Editor {
                 to: p,
                 mode,
                 base: self.selected.clone(),
-                bounds: self.shapes.iter().map(Shape::bounds).collect(),
+                frames: self.shapes.iter().map(Shape::frame).collect(),
             };
             return false;
         };
@@ -214,8 +250,13 @@ impl Editor {
             (SelectMode::Replace, Err(_)) => self.selected = vec![i],
         }
 
-        // lift the selection off the main layer onto its own
         self.gesture = Gesture::Move { from: p };
+        self.lift();
+        true
+    }
+
+    /// Moves the selection off the main layer onto `drag_layer`.
+    fn lift(&mut self) {
         self.layer.clear();
         self.drag_layer.clear();
         let mut sel = self.selected.iter().peekable();
@@ -226,7 +267,43 @@ impl Editor {
                 s.rasterize(&mut self.layer);
             }
         }
-        true
+    }
+
+    /// If `p` is just outside a corner of a selected shape's box, where a
+    /// press starts rotating the selection about its center, returns which
+    /// way that corner faces: radians clockwise from the top-left corner.
+    pub fn rotate_zone(&self, p: Point) -> Option<f32> {
+        if !matches!(self.gesture, Gesture::Idle) {
+            return None;
+        }
+        self.selection_frames().iter().find_map(|f| {
+            if f.contains(p, SEL_PAD) {
+                return None;
+            }
+            // corners() goes clockwise from top-left, a quarter turn apart
+            let k = (f.corners(SEL_PAD).iter()).position(|&c| dist(p, c) <= ROTATE_REACH)?;
+            Some(f.angle + k as f32 * std::f32::consts::FRAC_PI_2)
+        })
+    }
+
+    /// Updates an active rotation for the pointer at `p`.
+    /// Returns (pivot, angle in radians), or None when not rotating.
+    pub fn rotate_to(&mut self, p: Point) -> Option<(Point, f32)> {
+        let Gesture::Rotate {
+            pivot,
+            start,
+            angle,
+            ..
+        } = &mut self.gesture
+        else {
+            return None;
+        };
+        *angle = (p.1 - pivot.1).atan2(p.0 - pivot.0) - *start;
+        Some((*pivot, *angle))
+    }
+
+    pub fn rotating(&self) -> bool {
+        matches!(self.gesture, Gesture::Rotate { .. })
     }
 
     /// Offset of the drag in progress, if any.
@@ -237,8 +314,9 @@ impl Editor {
         }
     }
 
+    /// Whether the selection is lifted onto `drag_layer` (moving or rotating).
     pub fn dragging(&self) -> bool {
-        matches!(self.gesture, Gesture::Move { .. })
+        matches!(self.gesture, Gesture::Move { .. } | Gesture::Rotate { .. })
     }
 
     /// The marquee rectangle, if one is being drawn.
@@ -257,7 +335,7 @@ impl Editor {
             to,
             mode,
             base,
-            bounds,
+            frames,
         } = &mut self.gesture
         else {
             return false;
@@ -266,7 +344,8 @@ impl Editor {
         let ((x0, y0), (x1, y1)) = span(*from, p);
         let tiny = x1 - x0 < MARQUEE_MIN && y1 - y0 < MARQUEE_MIN;
         // touching any part of a shape's selection box is enough
-        let inside = |&((bx0, by0), (bx1, by1)): &Bounds| {
+        let inside = |f: &Frame| {
+            let ((bx0, by0), (bx1, by1)) = f.aabb();
             !tiny
                 && bx0 - SEL_PAD <= x1
                 && bx1 + SEL_PAD >= x0
@@ -275,7 +354,7 @@ impl Editor {
         };
         let mut base_it = base.iter().peekable();
         self.selected.clear();
-        for (i, b) in bounds.iter().enumerate() {
+        for (i, b) in frames.iter().enumerate() {
             let was = base_it.next_if_eq(&&i).is_some();
             let keep = match mode {
                 SelectMode::Remove => was && !inside(b),
@@ -302,14 +381,36 @@ impl Editor {
                 }
                 true
             }
+            Gesture::Rotate { pivot, angle, .. } => {
+                if angle != 0.0 {
+                    self.record(Op::Rotate(self.selected.clone(), pivot, angle));
+                } else {
+                    self.rebuild();
+                }
+                true
+            }
         }
     }
 
-    /// Bounds of each selected shape. Uses the marquee's cache while one is active.
-    pub fn selection_bounds(&self) -> Vec<Bounds> {
+    /// Frame of each selected shape. Uses the gesture's cache while a
+    /// marquee or rotation is active (turned by the rotation so far).
+    pub fn selection_frames(&self) -> Vec<Frame> {
         match &self.gesture {
-            Gesture::Marquee { bounds, .. } => self.selected.iter().map(|&i| bounds[i]).collect(),
-            _ => self.selected.iter().map(|&i| self.shapes[i].bounds()).collect(),
+            Gesture::Marquee { frames, .. } => self.selected.iter().map(|&i| frames[i]).collect(),
+            Gesture::Rotate {
+                pivot,
+                angle,
+                frames,
+                ..
+            } => frames
+                .iter()
+                .map(|f| f.rotated_about(*pivot, *angle))
+                .collect(),
+            _ => self
+                .selected
+                .iter()
+                .map(|&i| self.shapes[i].frame())
+                .collect(),
         }
     }
 
@@ -331,6 +432,10 @@ impl Editor {
         self.selected.clear();
         had
     }
+}
+
+fn dist(a: Point, b: Point) -> f32 {
+    ((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt()
 }
 
 /// Normalized rectangle spanned by two corners.

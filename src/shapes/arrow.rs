@@ -1,4 +1,4 @@
-use crate::shapes::{Draw, Point, Style, corner_bounds, offset, seg_dist};
+use crate::shapes::{Draw, Frame, Point, Style, offset, points_bounds, rotated, seg_dist};
 use std::fmt::Write;
 
 pub struct Arrow {
@@ -61,25 +61,28 @@ impl Draw for Arrow {
     fn hit(&self, p: Point, tol: f32) -> bool {
         let r = self.style.radius + tol;
         seg_dist(p, self.a, self.b) <= r
-            || self
-                .wings()
-                .is_some_and(|(w1, w2)| seg_dist(p, w1, self.b) <= r || seg_dist(p, w2, self.b) <= r)
+            || self.wings().is_some_and(|(w1, w2)| {
+                seg_dist(p, w1, self.b) <= r || seg_dist(p, w2, self.b) <= r
+            })
     }
 
-    fn bounds(&self) -> (Point, Point) {
-        let (mut lo, mut hi) = corner_bounds(self.a, self.b, self.style.radius);
-        if let Some((w1, w2)) = self.wings() {
-            for w in [w1, w2] {
-                let (wlo, whi) = corner_bounds(w, w, self.style.radius);
-                lo = (lo.0.min(wlo.0), lo.1.min(wlo.1));
-                hi = (hi.0.max(whi.0), hi.1.max(whi.1));
-            }
-        }
-        (lo, hi)
+    // rotation is baked into the points, so the box stays axis-aligned
+    fn frame(&self) -> Frame {
+        let wings = self.wings().map(|(w1, w2)| [w1, w2]).into_iter().flatten();
+        Frame::aligned(points_bounds(
+            [self.a, self.b].into_iter().chain(wings),
+            self.style.radius,
+        ))
     }
 
     fn translate(&mut self, d: Point) {
         offset(&mut self.a, d);
         offset(&mut self.b, d);
+    }
+
+    fn rotate(&mut self, c: Point, angle: f32) {
+        let sc = angle.sin_cos();
+        self.a = rotated(self.a, c, sc);
+        self.b = rotated(self.b, c, sc);
     }
 }

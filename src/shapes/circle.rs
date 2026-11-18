@@ -1,19 +1,26 @@
-use crate::shapes::{Draw, Point, Style, corner_bounds, offset, seg_dist};
+use crate::shapes::{Draw, Frame, Point, Style, offset, rotated, seg_dist};
 use std::fmt::Write;
 
-/// Ellipse inscribed in the rectangle spanned by `a` and `b`.
+/// Ellipse inscribed in the rectangle spanned by `a` and `b`, rotated by `angle`.
 pub struct Circle {
-    pub a: Point, // corner where the drag started
-    pub b: Point, // current/final corner
+    pub a: Point, // corner where the drag started (before rotation)
+    pub b: Point, // current/final corner (before rotation)
+    /// Rotation about the center, in radians.
+    pub angle: f32,
     pub style: Style,
 }
 
 impl Circle {
     pub fn new(p: Point, style: Style) -> Self {
-        Self { a: p, b: p, style }
+        Self {
+            a: p,
+            b: p,
+            angle: 0.0,
+            style,
+        }
     }
 
-    /// (center, radii) of the inscribed ellipse
+    /// (center, radii) of the inscribed ellipse, before rotation
     fn geometry(&self) -> (Point, Point) {
         let ((x0, y0), (x1, y1)) = (self.a, self.b);
         let c = ((x0 + x1) * 0.5, (y0 + y1) * 0.5);
@@ -26,11 +33,13 @@ impl Draw for Circle {
     fn write_preview(&self, out: &mut String) {
         out.clear();
         let ((cx, cy), (rx, ry)) = self.geometry();
+        let deg = self.angle.to_degrees();
+        let (s, k) = self.angle.sin_cos();
         // two half-ellipse arcs; a single full arc is degenerate in SVG
-        let (l, r) = (cx - rx, cx + rx);
+        let (lx, ly, rx_, ry_) = (cx - rx * k, cy - rx * s, cx + rx * k, cy + rx * s);
         let _ = write!(
             out,
-            "M {l} {cy} A {rx} {ry} 0 1 0 {r} {cy} A {rx} {ry} 0 1 0 {l} {cy} Z"
+            "M {lx} {ly} A {rx} {ry} {deg} 1 0 {rx_} {ry_} A {rx} {ry} {deg} 1 0 {lx} {ly} Z"
         );
     }
 
@@ -42,30 +51,47 @@ impl Draw for Circle {
 
     fn rasterize(&self, layer: &mut crate::raster::Layer) {
         let (c, r) = self.geometry();
-        layer.ellipse(c, r, self.style);
+        layer.ellipse(c, r, self.angle, self.style);
     }
 
     fn hit(&self, p: Point, tol: f32) -> bool {
-        let ((cx, cy), (rx, ry)) = self.geometry();
+        let (c, (rx, ry)) = self.geometry();
         let reach = self.style.radius + tol;
+        // work in the ellipse's own (unrotated) frame
+        let (px, py) = rotated(p, c, (-self.angle).sin_cos());
+        let (cx, cy) = c;
         // flat ellipse: rasterized as a line, so hit-test it as one
         if rx < 0.5 || ry < 0.5 {
-            return seg_dist(p, (cx - rx, cy - ry), (cx + rx, cy + ry)) <= reach;
+            return seg_dist((px, py), (cx - rx, cy - ry), (cx + rx, cy + ry)) <= reach;
         }
         // same first-order distance estimate as Layer::ellipse
-        let (ux, uy) = ((p.0 - cx) / rx, (p.1 - cy) / ry);
+        let (ux, uy) = ((px - cx) / rx, (py - cy) / ry);
         let k0 = (ux * ux + uy * uy).sqrt();
         let (vx, vy) = (ux / rx, uy / ry);
         let k1 = (vx * vx + vy * vy).sqrt();
         k1 > 1e-6 && (k0 * (k0 - 1.0) / k1).abs() <= reach
     }
 
-    fn bounds(&self) -> (Point, Point) {
-        corner_bounds(self.a, self.b, self.style.radius)
+    fn frame(&self) -> Frame {
+        let (center, (rx, ry)) = self.geometry();
+        let r = self.style.radius;
+        Frame {
+            center,
+            half: (rx + r, ry + r),
+            angle: self.angle,
+        }
     }
 
     fn translate(&mut self, d: Point) {
         offset(&mut self.a, d);
         offset(&mut self.b, d);
+    }
+
+    fn rotate(&mut self, c: Point, angle: f32) {
+        // move the center around `c`, then spin the shape about its center
+        let (old, _) = self.geometry();
+        let new = rotated(old, c, angle.sin_cos());
+        self.translate((new.0 - old.0, new.1 - old.1));
+        self.angle += angle;
     }
 }

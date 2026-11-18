@@ -1,5 +1,6 @@
-export struct SelectionBox { x: float, y: float, width: float, height: float }
-export struct DragOffset { x: float, y: float }
+// `angle` (degrees) turns the box about its center
+export struct SelectionBox { x: float, y: float, width: float, height: float, angle: float }
+export struct Vec2 { x: float, y: float }
 // how a select-tool press combines with the current selection (shift adds, ctrl removes)
 export enum SelectionMode { replace, add, remove }
 
@@ -9,15 +10,25 @@ export global Canvas {
     callback end(float, float);
     callback select-begin(float, float, SelectionMode);
     callback commit-text(float, float, string);
+    // select tool: the pointer moved without a button held
+    callback hover(float, float);
 
     in property <string> live-path;
     in property <image> overlay;
 
     // select tool: the lifted shape is drawn alone in drag-overlay and
-    // shifted by drag-offset, so dragging never re-rasterizes anything
+    // shifted by drag-offset (or turned by drag-angle about drag-pivot),
+    // so dragging never re-rasterizes anything
     in property <image> drag-overlay;
     in property <bool> dragging;
-    in property <DragOffset> drag-offset;
+    in property <bool> rotating;
+    in property <Vec2> drag-offset;
+    in property <Vec2> drag-pivot;
+    in property <angle> drag-angle;
+    // the pointer is just outside a selected shape's corner, where a press rotates
+    in property <bool> rotate-hover;
+    // which way the hovered corner faces (degrees, 0 = top-left), for the rotate icon
+    in property <float> rotate-cursor;
     in property <[SelectionBox]> selection;
     in property <bool> has-marquee;
     in property <SelectionBox> marquee;

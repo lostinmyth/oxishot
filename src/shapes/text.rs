@@ -7,7 +7,7 @@ use fontdue::{
 
 use crate::{
     raster::Layer,
-    shapes::{Draw, Point, Style, offset},
+    shapes::{Draw, Frame, Point, Style, offset, rotated},
 };
 
 /// Same file the Slint preview imports, so the committed raster matches it.
@@ -23,6 +23,8 @@ pub struct Text {
     pub pos: Point, // top-left of the line box (the TextInput's x/y)
     pub text: String,
     pub size: f32, // px per em, same number as Slint's font-size
+    /// Rotation about `pos`, in radians.
+    pub angle: f32,
     pub style: Style,
 }
 
@@ -43,17 +45,43 @@ impl Draw for Text {
                 continue; // whitespace
             }
             let (_, cov) = FONT.rasterize_config(g.key);
-            layer.coverage(g.x, g.y, g.width, g.height, &cov, self.style.color);
+            if self.angle == 0.0 {
+                layer.coverage(g.x, g.y, g.width, g.height, &cov, self.style.color);
+            } else {
+                let (pos, size) = ((g.x, g.y), (g.width, g.height));
+                layer.coverage_rotated(pos, size, &cov, self.style.color, self.pos, self.angle);
+            }
         }
     }
 
     // text is small and has gaps between glyphs, so its whole box counts
     fn hit(&self, p: Point, tol: f32) -> bool {
-        let ((x0, y0), (x1, y1)) = self.bounds();
-        p.0 >= x0 - tol && p.0 <= x1 + tol && p.1 >= y0 - tol && p.1 <= y1 + tol
+        self.frame().contains(p, tol)
     }
 
-    fn bounds(&self) -> (Point, Point) {
+    fn frame(&self) -> Frame {
+        // the line box turns about `pos`, so its center moves with it
+        let f = Frame::aligned(self.line_box());
+        Frame {
+            center: rotated(f.center, self.pos, self.angle.sin_cos()),
+            angle: self.angle,
+            ..f
+        }
+    }
+
+    fn translate(&mut self, d: Point) {
+        offset(&mut self.pos, d);
+    }
+
+    fn rotate(&mut self, c: Point, angle: f32) {
+        self.pos = rotated(self.pos, c, angle.sin_cos());
+        self.angle += angle;
+    }
+}
+
+impl Text {
+    /// The line box before rotation.
+    fn line_box(&self) -> (Point, Point) {
         let layout = self.layout();
         let right = layout
             .glyphs()
@@ -62,12 +90,6 @@ impl Draw for Text {
         (self.pos, (right, self.pos.1 + layout.height()))
     }
 
-    fn translate(&mut self, d: Point) {
-        offset(&mut self.pos, d);
-    }
-}
-
-impl Text {
     fn layout(&self) -> Layout {
         let mut layout = Layout::new(CoordinateSystem::PositiveYDown);
         layout.reset(&LayoutSettings {

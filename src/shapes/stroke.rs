@@ -1,9 +1,12 @@
 use std::fmt::Write;
 
-use crate::shapes::{Draw, Point, Style, corner_bounds, offset, seg_dist};
+use crate::shapes::{Draw, Frame, Point, Style, offset, rotated, seg_dist};
 
 pub struct Stroke {
     pub points: Vec<(f32, f32)>,
+    /// Total rotation applied so far (radians). The points already include it;
+    /// it only keeps the selection box turned with the stroke.
+    pub angle: f32,
     pub style: Style,
 }
 
@@ -11,6 +14,7 @@ impl Stroke {
     pub fn new(p: Point, style: Style) -> Self {
         Self {
             points: vec![p],
+            angle: 0.0,
             style,
         }
     }
@@ -56,20 +60,22 @@ impl Draw for Stroke {
         pts.windows(2).any(|w| seg_dist(p, w[0], w[1]) <= r)
     }
 
-    fn bounds(&self) -> (Point, Point) {
-        let first = self.points[0];
-        self.points.iter().fold(
-            corner_bounds(first, first, self.style.radius),
-            |(lo, hi), &q| {
-                let (qlo, qhi) = corner_bounds(q, q, self.style.radius);
-                ((lo.0.min(qlo.0), lo.1.min(qlo.1)), (hi.0.max(qhi.0), hi.1.max(qhi.1)))
-            },
-        )
+    // the box keeps the orientation the stroke was drawn in, turned with it
+    fn frame(&self) -> Frame {
+        Frame::fitted(self.points.iter().copied(), self.style.radius, self.angle)
     }
 
     fn translate(&mut self, d: Point) {
         for q in &mut self.points {
             offset(q, d);
         }
+    }
+
+    fn rotate(&mut self, c: Point, angle: f32) {
+        let sc = angle.sin_cos();
+        for q in &mut self.points {
+            *q = rotated(*q, c, sc);
+        }
+        self.angle += angle;
     }
 }
