@@ -5,7 +5,6 @@ import { ToolbarButton } from "toolbar_button.slint";
 export struct ToolDef { icon: image, name: string, action: Action }
 
 export component Toolbar inherits Rectangle {
-    in-out property <int> selected;
     in property <bool> selectable: true;
     in property <[ToolDef]> tools;
 
@@ -28,10 +27,9 @@ export component Toolbar inherits Rectangle {
             spacing: 1px;
             for tool[i] in root.tools: ToolbarButton {
                 icon: tool.icon;
-                active: selectable ? i == root.selected : false;
+                active: selectable && tool.action == Actions.current-tool;
                 clicked => {
                     if selectable {
-                        root.selected = i;
                         Actions.current-tool = tool.action;
                     }
                     Actions.dispatch(tool.action)

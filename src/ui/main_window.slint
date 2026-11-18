@@ -8,6 +8,7 @@ export { Canvas } from "canvas.slint";
 
 export component MainWindow inherits Window {
     in property <image> img;
+    forward-focus: keys;
 
     width: root.img.width * 1phx;
     height: root.img.height * 1phx;
@@ -106,5 +107,20 @@ export component MainWindow inherits Window {
             },
             // TODO: we should add a final button for color picking.
         ];
+        }
+
+        keys := FocusScope {
+            key-pressed(event) => {
+                if event.modifiers.control {
+                    if event.text == "z" { Actions.dispatch(Action.undo); return accept; }
+                    if event.text == "y" { Actions.dispatch(Action.redo); return accept; }
+                    return reject;
+                }
+                if event.text == "b" { Actions.current-tool = Action.brush; return accept; }
+                if event.text == "r" { Actions.current-tool = Action.rectangle; return accept; }
+                if event.text == "o" { Actions.current-tool = Action.circle; return accept; }
+                if event.text == "a" { Actions.current-tool = Action.arrow; return accept; }
+                reject
+            }
         }
     }

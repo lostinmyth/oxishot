@@ -64,6 +64,7 @@ impl Editor {
         if let Some(shape) = self.redo.pop() {
             shape.rasterize(&mut self.layer);
             self.history.push(shape);
+            return true;
         }
 
         false
