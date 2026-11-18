@@ -458,11 +458,31 @@ pub fn flatten(
 ) -> SharedPixelBuffer<Rgba8Pixel> {
     let mut out = base.clone();
     for (d, &s) in out.make_mut_slice().iter_mut().zip(overlay.as_slice()) {
-        match s.a {
-            0 => {}
-            255 => *d = s,
-            _ => blend_over(d, s, 1.0),
-        }
+        composite(d, s);
     }
     out
+}
+
+/// The flattened color at pixel (x, y), without flattening the whole image.
+pub fn flattened_pixel(
+    base: &SharedPixelBuffer<Rgba8Pixel>,
+    overlay: &SharedPixelBuffer<Rgba8Pixel>,
+    x: u32,
+    y: u32,
+) -> Option<Rgba8Pixel> {
+    if x >= base.width() || y >= base.height() {
+        return None;
+    }
+    let i = (y * base.width() + x) as usize;
+    let mut d = base.as_slice()[i];
+    composite(&mut d, overlay.as_slice()[i]);
+    Some(d)
+}
+
+fn composite(d: &mut Rgba8Pixel, s: Rgba8Pixel) {
+    match s.a {
+        0 => {}
+        255 => *d = s,
+        _ => blend_over(d, s, 1.0),
+    }
 }

@@ -39,8 +39,30 @@ export component MainWindow inherits Window {
     function close-picker() {
         if !root.picking { return; }
         root.picking = false;
+        root.sampling = false;
         Styling.commit();
         keys.focus();
+    }
+
+    // the color popover's eyedropper is on: canvas presses pick its color
+    property <bool> sampling;
+
+    // the color popover sits under the style panel until dragged; then it
+    // stays where it was put (also between openings), inside the window
+    property <bool> popover-moved;
+    property <length> popover-x;
+    property <length> popover-y;
+
+    function drag-popover(dx: length, dy: length) {
+        root.popover-x = clamp(popover.x + dx, 0, root.width - popover.width);
+        root.popover-y = clamp(popover.y + dy, 0, root.height - popover.height);
+        root.popover-moved = true;
+    }
+
+    // eyedropper tool: the color under (x, y) becomes the stroke color
+    function eyedrop(x: length, y: length) {
+        let p = Canvas.sample(x / 1phx, y / 1phx);
+        if p.ok { Styling.stroke = p.color; }
     }
 
     function cancel-text() {
@@ -49,176 +71,200 @@ export component MainWindow inherits Window {
         keys.focus();
     }
 
-    width: root.img.width * 1phx;
-    height: root.img.height * 1phx;
+    // the smallest window the bars and an open color popover fit in (the
+    // popover is ~435px with three swatch rows; that tall, it moves up over
+    // the style panel and may cover the bottom bar's right end while open,
+    // but is never cut off)
+    property <length> floor-width: 320px;
+    property <length> floor-height: 500px;
+    out property <length> view-width: max(root.img.width * 1phx, root.floor-width);
+    out property <length> view-height: max(root.img.height * 1phx, root.floor-height);
+    width: root.view-width;
+    height: root.view-height;
+    background: #0e0e10;
 
-    Image {
+    // the image and everything drawn on it, centered when the window is
+    // bigger than the image
+    stage := Rectangle {
+        x: (root.width - self.width) / 2;
+        y: (root.height - self.height) / 2;
         width: root.img.width * 1phx;
         height: root.img.height * 1phx;
-        source: root.img;
-    }
 
-    Image {
-        width: root.img.width * 1phx;
-        height: root.img.height * 1phx;
-        source: Canvas.overlay;
-    }
+        Image {
+            width: root.img.width * 1phx;
+            height: root.img.height * 1phx;
+            source: root.img;
+        }
 
-    Image {
-        x: Canvas.drag-live ? 0 : Canvas.drag-offset.x * 1phx;
-        y: Canvas.drag-live ? 0 : Canvas.drag-offset.y * 1phx;
-        width: root.img.width * 1phx;
-        height: root.img.height * 1phx;
-        source: Canvas.drag-overlay;
-        visible: Canvas.dragging;
-        transform-rotation: Canvas.drag-live ? 0deg : Canvas.drag-angle;
-        transform-origin: { x: Canvas.drag-pivot.x * 1phx, y: Canvas.drag-pivot.y * 1phx };
-    }
+        Image {
+            width: root.img.width * 1phx;
+            height: root.img.height * 1phx;
+            source: Canvas.overlay;
+        }
 
-    // the 3 here must match SEL_PAD in editor.rs (clicks inside this box hit the shape)
-    // each box turns with its shape; the corner squares are scale handles,
-    // and just outside them is where rotating starts
-    for b in Canvas.selection: Rectangle {
-        x: (b.x + (Canvas.dragging ? Canvas.drag-offset.x : 0) - 3) * 1phx;
-        y: (b.y + (Canvas.dragging ? Canvas.drag-offset.y : 0) - 3) * 1phx;
-        width: (b.width + 3 * 2) * 1phx;
-        height: (b.height + 3 * 2) * 1phx;
-        transform-rotation: b.angle * 1deg;
-        transform-origin: { x: self.width / 2, y: self.height / 2 };
-        border-width: 1px;
-        border-color: #3b82f6;
-        background: #3b82f60f;
+        Image {
+            x: Canvas.drag-live ? 0 : Canvas.drag-offset.x * 1phx;
+            y: Canvas.drag-live ? 0 : Canvas.drag-offset.y * 1phx;
+            width: root.img.width * 1phx;
+            height: root.img.height * 1phx;
+            source: Canvas.drag-overlay;
+            visible: Canvas.dragging;
+            transform-rotation: Canvas.drag-live ? 0deg : Canvas.drag-angle;
+            transform-origin: { x: Canvas.drag-pivot.x * 1phx, y: Canvas.drag-pivot.y * 1phx };
+        }
 
-        for c in [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }]: Rectangle {
-            x: c.x * parent.width - 3.5px;
-            y: c.y * parent.height - 3.5px;
-            width: 7px;
-            height: 7px;
+        // the 3 here must match SEL_PAD in editor.rs (clicks inside this box hit the shape)
+        // each box turns with its shape; the corner squares are scale handles,
+        // and just outside them is where rotating starts
+        for b in Canvas.selection: Rectangle {
+            x: (b.x + (Canvas.dragging ? Canvas.drag-offset.x : 0) - 3) * 1phx;
+            y: (b.y + (Canvas.dragging ? Canvas.drag-offset.y : 0) - 3) * 1phx;
+            width: (b.width + 3 * 2) * 1phx;
+            height: (b.height + 3 * 2) * 1phx;
+            transform-rotation: b.angle * 1deg;
+            transform-origin: { x: self.width / 2, y: self.height / 2 };
             border-width: 1px;
             border-color: #3b82f6;
-            background: white;
-        }
-    }
+            background: #3b82f60f;
 
-    if Canvas.has-marquee: Rectangle {
-        x: Canvas.marquee.x * 1phx;
-        y: Canvas.marquee.y * 1phx;
-        width: Canvas.marquee.width * 1phx;
-        height: Canvas.marquee.height * 1phx;
-        border-width: 1px;
-        border-color: #3b82f6cc;
-        background: #3b82f61a;
-    }
-
-    Path {
-        width: root.img.width * 1phx;
-        height: root.img.height * 1phx;
-        viewbox-width: root.img.width;
-        viewbox-height: root.img.height;
-        commands: Canvas.live-path;
-        // a blur only shows its region until it's committed and rasterized
-        stroke: Actions.current-tool == Action.blur ? #ffffffcc : Styling.stroke;
-        stroke-width: Actions.current-tool == Action.blur ? 1px : Styling.radius * 2 * 1phx;
-        fill: Actions.current-tool == Action.rectangle || Actions.current-tool == Action.circle ? Styling.fill
-            : Actions.current-tool == Action.blur ? #ffffff26 : transparent;
-        stroke-line-cap: round;
-        // rectangles get square corners, matching Layer::box_outline
-        stroke-line-join: Actions.current-tool == Action.rectangle || Actions.current-tool == Action.blur ? LineJoin.miter : LineJoin.round;
-    }
-
-    touch := TouchArea {
-        enabled: Actions.current-tool == Action.select || Actions.current-tool == Action.brush || Actions.current-tool == Action.text || Actions.current-tool == Action.rectangle || Actions.current-tool == Action.circle || Actions.current-tool == Action.arrow || Actions.current-tool == Action.blur;
-        // system resize cursors only come in fixed diagonals and theme sizes;
-        // the icons below stand in for them, matching rotated boxes
-        // a fresh shape stays selected under the drawing tools, so its
-        // handles work there too
-        mouse-cursor: Canvas.scale-hover || Canvas.scaling || Canvas.rotate-hover || Canvas.rotating ? MouseCursor.none
-            : Canvas.dragging ? MouseCursor.grabbing
-            : Actions.current-tool == Action.text ? MouseCursor.text
-            : Actions.current-tool == Action.select ? MouseCursor.default
-            : MouseCursor.crosshair;
-        pointer-event(e) => {
-            if e.kind == PointerEventKind.move && (Actions.current-tool == Action.select || Canvas.selection.length > 0) && !self.pressed {
-                Canvas.hover(self.mouse-x / 1phx, self.mouse-y / 1phx);
+            for c in [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }]: Rectangle {
+                x: c.x * parent.width - 3.5px;
+                y: c.y * parent.height - 3.5px;
+                width: 7px;
+                height: 7px;
+                border-width: 1px;
+                border-color: #3b82f6;
+                background: white;
             }
-            if e.button == PointerEventButton.left {
-                // leave an input (e.g. the width field) so shortcuts work again;
-                // the text tool moves focus to its own editor below
-                if e.kind == PointerEventKind.down { keys.focus(); }
-                if e.kind == PointerEventKind.down && Actions.current-tool == Action.text {
-                    // clicking elsewhere commits the previous text (selecting it),
-                    // then either grabs that selection or starts a new text
-                    root.commit-text();
-                    if !Canvas.grab(self.mouse-x / 1phx, self.mouse-y / 1phx) {
-                        root.text-x = self.mouse-x;
-                        root.text-y = self.mouse-y;
-                        root.typing = true;
-                        text-editor.focus();
-                    }
-                } else if e.kind == PointerEventKind.down && Actions.current-tool == Action.select {
-                    Canvas.select-begin(self.mouse-x / 1phx, self.mouse-y / 1phx,
-                        e.modifiers.control ? SelectionMode.remove
-                        : e.modifiers.shift ? SelectionMode.add
-                        : SelectionMode.replace);
-                } else if e.kind == PointerEventKind.down {
-                    if !Canvas.grab(self.mouse-x / 1phx, self.mouse-y / 1phx) {
+        }
+
+        if Canvas.has-marquee: Rectangle {
+            x: Canvas.marquee.x * 1phx;
+            y: Canvas.marquee.y * 1phx;
+            width: Canvas.marquee.width * 1phx;
+            height: Canvas.marquee.height * 1phx;
+            border-width: 1px;
+            border-color: #3b82f6cc;
+            background: #3b82f61a;
+        }
+
+        Path {
+            width: root.img.width * 1phx;
+            height: root.img.height * 1phx;
+            viewbox-width: root.img.width;
+            viewbox-height: root.img.height;
+            commands: Canvas.live-path;
+            // a blur only shows its region until it's committed and rasterized
+            stroke: Actions.current-tool == Action.blur ? #ffffffcc : Styling.stroke;
+            stroke-width: Actions.current-tool == Action.blur ? 1px : Styling.radius * 2 * 1phx;
+            fill: Actions.current-tool == Action.rectangle || Actions.current-tool == Action.circle ? Styling.fill
+                : Actions.current-tool == Action.blur ? #ffffff26 : transparent;
+            stroke-line-cap: round;
+            // rectangles get square corners, matching Layer::box_outline
+            stroke-line-join: Actions.current-tool == Action.rectangle || Actions.current-tool == Action.blur ? LineJoin.miter : LineJoin.round;
+        }
+
+        touch := TouchArea {
+            enabled: Actions.current-tool == Action.select || Actions.current-tool == Action.brush || Actions.current-tool == Action.text || Actions.current-tool == Action.rectangle || Actions.current-tool == Action.circle || Actions.current-tool == Action.arrow || Actions.current-tool == Action.blur || Actions.current-tool == Action.eyedropper;
+            // system resize cursors only come in fixed diagonals and theme sizes;
+            // the icons below stand in for them, matching rotated boxes
+            mouse-cursor: Canvas.scale-hover || Canvas.scaling || Canvas.rotate-hover || Canvas.rotating ? MouseCursor.none
+                : Canvas.dragging ? MouseCursor.grabbing
+                : Actions.current-tool == Action.text ? MouseCursor.text
+                : Actions.current-tool == Action.select ? MouseCursor.default
+                : MouseCursor.crosshair;
+            pointer-event(e) => {
+                if e.kind == PointerEventKind.move && Actions.current-tool == Action.select && !self.pressed {
+                    Canvas.hover(self.mouse-x / 1phx, self.mouse-y / 1phx);
+                }
+                if e.button == PointerEventButton.left {
+                    // leave an input (e.g. the width field) so shortcuts work again;
+                    // the text tool moves focus to its own editor below
+                    if e.kind == PointerEventKind.down { keys.focus(); }
+                    if e.kind == PointerEventKind.down && Actions.current-tool == Action.text {
+                        // clicking elsewhere commits the pending text (which
+                        // switches to select); with nothing typed, it starts anew here
+                        if root.typing && text-editor.text != "" {
+                            root.commit-text();
+                        } else {
+                            root.cancel-text();
+                            root.text-x = self.mouse-x;
+                            root.text-y = self.mouse-y;
+                            root.typing = true;
+                            text-editor.focus();
+                        }
+                    } else if Actions.current-tool == Action.eyedropper {
+                        if e.kind == PointerEventKind.down { root.eyedrop(self.mouse-x, self.mouse-y); }
+                        if e.kind == PointerEventKind.up { Actions.current-tool = Action.select; }
+                    } else if e.kind == PointerEventKind.down && Actions.current-tool == Action.select {
+                        Canvas.select-begin(self.mouse-x / 1phx, self.mouse-y / 1phx,
+                            e.modifiers.control ? SelectionMode.remove
+                            : e.modifiers.shift ? SelectionMode.add
+                            : SelectionMode.replace);
+                    } else if e.kind == PointerEventKind.down {
                         Canvas.begin(self.mouse-x / 1phx, self.mouse-y / 1phx);
+                    } else if e.kind == PointerEventKind.up {
+                        Canvas.end(self.mouse-x / 1phx, self.mouse-y / 1phx);
                     }
-                } else if e.kind == PointerEventKind.up {
-                    Canvas.end(self.mouse-x / 1phx, self.mouse-y / 1phx);
                 }
             }
-        }
-        moved => {
-            Canvas.extend(self.mouse-x / 1phx, self.mouse-y / 1phx);
-        }
-    }
-
-    if touch.has-hover && (Canvas.rotate-hover || Canvas.rotating): Image {
-        x: touch.mouse-x - 10px;
-        y: touch.mouse-y - 10px;
-        width: 20px;
-        height: 20px;
-        source: @image-url("../assets/icons/rotate.svg");
-        // the icon's arc hugs a top-left corner; turn it to the grabbed one
-        // and keep turning it with the shapes while rotating
-        transform-rotation: (Canvas.rotate-cursor + (Canvas.rotating ? Canvas.drag-angle / 1deg : 0)) * 1deg;
-    }
-
-    if touch.has-hover && (Canvas.scale-hover || Canvas.scaling): Image {
-        x: touch.mouse-x - 10px;
-        y: touch.mouse-y - 10px;
-        width: 20px;
-        height: 20px;
-        source: @image-url("../assets/icons/scale.svg");
-        // the icon runs along a top-left corner's bisector; turn it to the grabbed corner
-        transform-rotation: Canvas.scale-cursor * 1deg;
-    }
-
-    // declared after the TouchArea so it sits on top and gets clicks for the caret
-    // keys the TextInput doesn't use (Escape) bubble up to this scope
-    FocusScope {
-        x: root.text-x;
-        y: root.text-y;
-        width: text-editor.preferred-width;
-        height: text-editor.preferred-height;
-        visible: root.typing;
-        key-pressed(event) => {
-            if event.text == Key.Escape {
-                root.cancel-text();
-                return accept;
+            moved => {
+                // dragging the eyedropper keeps sampling, so the panel shows what's under it
+                if Actions.current-tool == Action.eyedropper {
+                    root.eyedrop(self.mouse-x, self.mouse-y);
+                    return;
+                }
+                Canvas.extend(self.mouse-x / 1phx, self.mouse-y / 1phx);
             }
-            reject
         }
 
-        text-editor := TextInput {
-            enabled: root.typing;
-            single-line: true;
-            font-family: Styling.font-family;
-            font-weight: Styling.font-weight;
-            font-size: Styling.font-size * 1phx;
-            color: Styling.stroke;
-            accepted => { root.commit-text(); }
+        if touch.has-hover && (Canvas.rotate-hover || Canvas.rotating): Image {
+            x: touch.mouse-x - 10px;
+            y: touch.mouse-y - 10px;
+            width: 20px;
+            height: 20px;
+            source: @image-url("../assets/icons/rotate.svg");
+            // the icon's arc hugs a top-left corner; turn it to the grabbed one
+            // and keep turning it with the shapes while rotating
+            transform-rotation: (Canvas.rotate-cursor + (Canvas.rotating ? Canvas.drag-angle / 1deg : 0)) * 1deg;
+        }
+
+        if touch.has-hover && (Canvas.scale-hover || Canvas.scaling): Image {
+            x: touch.mouse-x - 10px;
+            y: touch.mouse-y - 10px;
+            width: 20px;
+            height: 20px;
+            source: @image-url("../assets/icons/scale.svg");
+            // the icon runs along a top-left corner's bisector; turn it to the grabbed corner
+            transform-rotation: Canvas.scale-cursor * 1deg;
+        }
+
+        // declared after the TouchArea so it sits on top and gets clicks for the caret
+        // keys the TextInput doesn't use (Escape) bubble up to this scope
+        FocusScope {
+            x: root.text-x;
+            y: root.text-y;
+            width: text-editor.preferred-width;
+            height: text-editor.preferred-height;
+            visible: root.typing;
+            key-pressed(event) => {
+                if event.text == Key.Escape {
+                    root.cancel-text();
+                    return accept;
+                }
+                reject
+            }
+
+            text-editor := TextInput {
+                enabled: root.typing;
+                single-line: true;
+                font-family: Styling.font-family;
+                font-weight: Styling.font-weight;
+                font-size: Styling.font-size * 1phx;
+                color: Styling.stroke;
+                accepted => { root.commit-text(); }
+            }
         }
     }
 
@@ -306,25 +352,49 @@ export component MainWindow inherits Window {
             { icon: @image-url("../assets/icons/blur.svg"), name: "Blur", shortcut: "U", action: Action.blur },
             {
                 icon: @image-url("../assets/icons/eyedropper.svg"),
-                name: "Eyedropper", shortcut: "",
+                name: "Eyedropper", shortcut: "I",
                 action: Action.eyedropper
             },
-            // TODO: we should add a final button for color picking.
         ];
         }
 
-        // above everything else: a click outside the popover just closes it
+        // above everything else: a click outside the popover just closes it,
+        // unless its eyedropper is on: then pressing (and dragging) picks the
+        // color under the pointer, and releasing turns the eyedropper off
         if root.picking: TouchArea {
+            mouse-cursor: root.sampling ? MouseCursor.crosshair : MouseCursor.default;
+            function pick() {
+                let p = Canvas.sample((self.mouse-x - stage.x) / 1phx, (self.mouse-y - stage.y) / 1phx);
+                if p.ok { popover.take(p.color); }
+            }
             pointer-event(e) => {
-                if e.kind == PointerEventKind.down { root.close-picker(); }
+                if !root.sampling {
+                    if e.kind == PointerEventKind.down { root.close-picker(); }
+                } else if e.button == PointerEventButton.left {
+                    if e.kind == PointerEventKind.down { self.pick(); }
+                    if e.kind == PointerEventKind.up {
+                        root.sampling = false;
+                        Styling.commit();
+                        popover.focus();
+                    }
+                }
+            }
+            moved => {
+                if root.sampling { self.pick(); }
             }
         }
 
         popover := ColorPopover {
-            visible: root.picking && (root.picking-field == StyleField.stroke || root.picking-field == StyleField.fill);
-            x: parent.width - self.width - 8px;
-            y: max(8px, min(style-panel.y + style-panel.height + 6px, parent.height - self.height - 8px));
+            // out of the way while its eyedropper picks; back on release
+            visible: root.picking && !root.sampling && (root.picking-field == StyleField.stroke || root.picking-field == StyleField.fill);
+            // undragged, it moves up as needed to stay 8px inside the window
+            x: root.popover-moved ? root.popover-x : parent.width - self.width - 8px;
+            y: root.popover-moved ? clamp(root.popover-y, 0, parent.height - self.height)
+                : max(8px, min(style-panel.y + style-panel.height + 6px, parent.height - self.height - 8px));
             field: root.picking-field;
+            dragged(dx, dy) => { root.drag-popover(dx, dy); }
+            sampling: root.sampling;
+            toggle-sampling => { root.sampling = !root.sampling; }
             close => { root.close-picker(); }
         }
 
@@ -359,8 +429,7 @@ export component MainWindow inherits Window {
                     }
                     return reject;
                 }
-                // also under drawing tools, where the shape just drawn is selected
-                if Actions.current-tool == Action.select || Canvas.selection.length > 0 {
+                if Actions.current-tool == Action.select {
                     if event.text == Key.Delete || event.text == Key.Backspace { Actions.dispatch(Action.delete); return accept; }
                     if event.text == Key.Escape { Actions.dispatch(Action.deselect); return accept; }
                 }
@@ -371,6 +440,7 @@ export component MainWindow inherits Window {
                 if event.text == "o" { Actions.current-tool = Action.circle; return accept; }
                 if event.text == "a" { Actions.current-tool = Action.arrow; return accept; }
                 if event.text == "u" { Actions.current-tool = Action.blur; return accept; }
+                if event.text == "i" { Actions.current-tool = Action.eyedropper; return accept; }
                 reject
             }
         }

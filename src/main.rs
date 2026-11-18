@@ -49,7 +49,7 @@ fn shape_for(tool: Action, p: Point, style: Style) -> Option<Shape> {
 }
 
 /// How many used colors the color popover lists (two rows).
-const USED_COLORS: usize = 18;
+const USED_COLORS: usize = 12;
 
 fn push_overlay(win: &slint::Weak<MainWindow>, ed: &Editor) {
     if let Some(win) = win.upgrade() {
@@ -228,22 +228,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Input::Stdin => utils::stdin::load_image_from_stdin()?,
     };
 
-    let screenshot_size = screenshot.size();
     let base = screenshot.to_rgba8().ok_or("could not decode the image")?;
     // -o only presets where the save dialog starts
     let output = args.output;
 
     let window = MainWindow::new()?;
-    let width = screenshot_size.width;
-    let height = screenshot_size.height;
 
     window.set_img(screenshot);
-    window
-        .window()
-        .set_size(slint::PhysicalSize::new(width, height));
+    // at least big enough for the toolbars (see view-width in main_window.slint)
+    window.window().set_size(slint::LogicalSize::new(
+        window.get_view_width(),
+        window.get_view_height(),
+    ));
 
     let actions = window.global::<Actions>();
     let editor = Rc::new(RefCell::new(Editor::new(base.clone())));
+    // the eyedropper reads the screenshot too; the save/copy actions take `base`
+    let sample_base = base.clone();
     actions.on_dispatch({
         let (ed, win) = (editor.clone(), window.as_weak());
         move |action| {
@@ -351,23 +352,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // drawing tools: a press on the selection (e.g. the shape just drawn)
-    // moves, scales or rotates it; anywhere else drops it to draw anew
-    canvas.on_grab({
-        let (ed, win) = (editor.clone(), window.as_weak());
-        move |x, y| {
-            let mut ed = ed.borrow_mut();
-            if ed.grabs_selection((x, y)) {
-                press(&win, &mut ed, (x, y), SelectMode::Replace);
-                return true;
-            }
-            if ed.deselect() {
-                push_selection(&win, &ed);
-            }
-            false
-        }
-    });
-
     canvas.on_extend({
         let (ed, win) = (editor.clone(), window.as_weak());
         move |x, y| {
@@ -428,7 +412,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             if ed.end() {
                 push_overlay(&win, &ed);
-                win.unwrap().global::<Canvas>().set_live_path("".into());
+                let w = win.unwrap();
+                w.global::<Canvas>().set_live_path("".into());
+                // the new shape is selected; edit it with the select tool
+                w.global::<Actions>().set_current_tool(Action::Select);
             }
         }
     });
@@ -452,6 +439,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    canvas.on_sample({
+        let ed = editor.clone();
+        let base = sample_base;
+        move |x, y| {
+            let (x, y) = (x.floor(), y.floor());
+            if x < 0.0 || y < 0.0 {
+                return ParsedColor::default();
+            }
+            let ed = ed.borrow();
+            match raster::flattened_pixel(&base, &ed.layer.buf, x as u32, y as u32) {
+                Some(p) => ParsedColor { ok: true, color: to_color(p) },
+                None => ParsedColor::default(),
+            }
+        }
+    });
+
     canvas.on_commit_text({
         let (ed, win) = (editor.clone(), window.as_weak());
         move |x, y, text| {
@@ -469,6 +472,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut ed = ed.borrow_mut();
             ed.commit(shape);
             push_overlay(&win, &ed);
+            w.global::<Actions>().set_current_tool(Action::Select);
         }
     });
 

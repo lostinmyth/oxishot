@@ -1,3 +1,5 @@
+import { ParsedColor } from "styling.slint";
+
 // `angle` (degrees) turns the box about its center
 export struct SelectionBox { x: float, y: float, width: float, height: float, angle: float }
 export struct Vec2 { x: float, y: float }
@@ -9,12 +11,11 @@ export global Canvas {
     callback extend(float, float);
     callback end(float, float);
     callback select-begin(float, float, SelectionMode);
-    // drawing tools: a press that grabs the selection instead of drawing;
-    // returns whether it did (otherwise the selection is dropped)
-    callback grab(float, float) -> bool;
     callback commit-text(float, float, string);
     // the pointer moved without a button held (while something can be selected)
     callback hover(float, float);
+    // the color under (x, y) as shown (ok is false outside the image)
+    callback sample(float, float) -> ParsedColor;
 
     in property <string> live-path;
     in property <image> overlay;

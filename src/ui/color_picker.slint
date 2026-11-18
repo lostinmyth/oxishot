@@ -201,7 +201,7 @@ export component ColorPicker inherits VerticalLayout {
     spacing: 10px;
 
     Rectangle {
-        height: 140px;
+        height: 110px;
         border-radius: 4px;
         background: hsv(root.hue, 1, 1);
 
@@ -272,18 +272,18 @@ export component ColorPicker inherits VerticalLayout {
         released => { root.committed(); }
     }
 
+    hex := Field {
+        label: "Hex";
+        edited => {
+            let p = Styling.parse-hex(self.text);
+            if p.ok { root.changed-by-input(p.color); }
+        }
+        done => { root.input-done(); }
+    }
+
     HorizontalLayout {
         spacing: 4px;
 
-        hex := Field {
-            label: "Hex";
-            horizontal-stretch: 2.4;
-            edited => {
-                let p = Styling.parse-hex(self.text);
-                if p.ok { root.changed-by-input(p.color); }
-            }
-            done => { root.input-done(); }
-        }
         r := Field {
             label: "R";
             horizontal-stretch: 1;

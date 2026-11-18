@@ -192,12 +192,13 @@ export component StylePanel inherits Rectangle {
     property <Action> tool: Actions.current-tool;
     out property <bool> relevant: Styling.has-selection
         || tool == Action.brush || tool == Action.text || tool == Action.rectangle
-        || tool == Action.circle || tool == Action.arrow || tool == Action.blur;
+        || tool == Action.circle || tool == Action.arrow || tool == Action.blur
+        || tool == Action.eyedropper;
     property <bool> show-color: Styling.has-selection ? Styling.selection-colored : tool != Action.blur;
     property <bool> show-fill: Styling.has-selection ? Styling.selection-fillable
         : tool == Action.rectangle || tool == Action.circle;
     property <bool> show-width: Styling.has-selection ? Styling.selection-stroked
-        : tool != Action.text && tool != Action.blur;
+        : tool != Action.text && tool != Action.blur && tool != Action.eyedropper;
     property <bool> show-strength: Styling.has-selection ? Styling.selection-blur : tool == Action.blur;
     property <bool> show-font: Styling.has-selection ? Styling.selection-text : tool == Action.text;
 
@@ -338,14 +339,50 @@ component Swatch inherits Rectangle {
     }
 }
 
+// A small square icon button for the popovers; `active` shows it as on.
+component IconButton inherits Rectangle {
+    in property <image> icon;
+    in property <bool> active;
+    callback clicked();
+
+    width: 22px;
+    height: 22px;
+    border-radius: 5px;
+    background: root.active ? #3b82f6 : ta.has-hover ? #ffffff14 : transparent;
+    animate background { duration: 90ms; }
+
+    Image {
+        width: 14px;
+        height: 14px;
+        source: root.icon;
+        colorize: root.active || ta.has-hover ? #ffffff : #a1a1aa;
+    }
+
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
 // Color picker for one Styling field, plus the colors already used.
 export component ColorPopover inherits FocusScope {
     in property <StyleField> field;
+    // the eyedropper button is on (the window does the picking)
+    in property <bool> sampling;
     callback close();
+    callback toggle-sampling();
+    // the header was dragged by this much
+    callback dragged(length, length);
 
     public function open-with(c: color) {
         picker.set-color(c);
         root.focus();
+    }
+
+    // a color picked from the image (live; the window commits on release)
+    public function take(c: color) {
+        picker.set-color(c);
+        root.set(c);
     }
 
     function set(c: color) {
@@ -356,9 +393,9 @@ export component ColorPopover inherits FocusScope {
     // the fill picker's first swatch is "none"
     property <int> lead: root.field == StyleField.fill ? 1 : 0;
     property <int> count: Styling.used-colors.length + root.lead;
-    property <length> pad: 8px;
+    property <length> pad: 10px;
     property <length> cell: 25px; // swatch + 1px gap
-    property <int> cols: 9;
+    property <int> cols: 6;
 
     width: root.cols * root.cell - 1px + 2 * root.pad;
     height: panel.preferred-height;
@@ -386,6 +423,30 @@ export component ColorPopover inherits FocusScope {
             padding: root.pad;
             spacing: 10px;
 
+            // the header moves the popover
+            Rectangle {
+                height: 22px;
+
+                TouchArea {
+                    mouse-cursor: move;
+                    moved => { root.dragged(self.mouse-x - self.pressed-x, self.mouse-y - self.pressed-y); }
+                }
+
+                HorizontalLayout {
+                    Text {
+                        text: root.field == StyleField.fill ? "Fill" : "Stroke";
+                        font-size: 12px;
+                        color: #fafafa;
+                        vertical-alignment: center;
+                    }
+
+                    IconButton {
+                        icon: @image-url("../assets/icons/cancel.svg");
+                        clicked => { root.close(); }
+                    }
+                }
+            }
+
             picker := ColorPicker {
                 edited(c) => { root.set(c); }
                 committed => { Styling.commit(); }
@@ -396,10 +457,20 @@ export component ColorPopover inherits FocusScope {
                 background: #ffffff14;
             }
 
-            Text {
-                text: "Used in image";
-                font-size: 11px;
-                color: #a1a1aa;
+            HorizontalLayout {
+                Text {
+                    text: "Used in image";
+                    font-size: 11px;
+                    color: #a1a1aa;
+                    vertical-alignment: center;
+                }
+
+                // pick a color from the image
+                IconButton {
+                    icon: @image-url("../assets/icons/eyedropper.svg");
+                    active: root.sampling;
+                    clicked => { root.toggle-sampling(); }
+                }
             }
 
             if root.count == 0: Text {
