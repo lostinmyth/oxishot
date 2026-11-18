@@ -46,6 +46,51 @@ impl Layer {
             }
         }
     }
+
+    /// Ellipse outline with center `c` and radii `r`: pixels whose
+    /// (approximate) distance to the ellipse is within the stroke radius.
+    pub fn ellipse(&mut self, c: (f32, f32), r: (f32, f32), style: Style) {
+        let (rx, ry) = r;
+        // a flat ellipse is just a line; also avoids dividing by ~0 below
+        if rx < 0.5 || ry < 0.5 {
+            self.capsule((c.0 - rx, c.1 - ry), (c.0 + rx, c.1 + ry), style);
+            return;
+        }
+
+        let radius = style.radius;
+        let color = style.color;
+
+        let (w, h) = (self.buf.width() as i32, self.buf.height() as i32);
+        let x0 = ((c.0 - rx - radius - 1.0).floor() as i32).max(0);
+        let y0 = ((c.1 - ry - radius - 1.0).floor() as i32).max(0);
+        let x1 = ((c.0 + rx + radius + 1.0).ceil() as i32).min(w);
+        let y1 = ((c.1 + ry + radius + 1.0).ceil() as i32).min(h);
+
+        let (irx, iry) = (1.0 / rx, 1.0 / ry);
+        let px = self.buf.make_mut_slice();
+
+        for y in y0..y1 {
+            let row = (y * w) as usize;
+            for x in x0..x1 {
+                let (fx, fy) = (x as f32 + 0.5 - c.0, y as f32 + 0.5 - c.1);
+                // first-order distance: f / |grad f| with f = |p/r| - 1,
+                // written as k0 * (k0 - 1) / k1 (accurate near the outline,
+                // which is the only place we need it)
+                let (ux, uy) = (fx * irx, fy * iry);
+                let k0 = (ux * ux + uy * uy).sqrt();
+                let (vx, vy) = (ux * irx, uy * iry);
+                let k1 = (vx * vx + vy * vy).sqrt();
+                if k1 < 1e-6 {
+                    continue; // exact center, far from the outline
+                }
+                let d = (k0 * (k0 - 1.0) / k1).abs();
+                let cov = (radius + 0.5 - d).clamp(0.0, 1.0);
+                if cov > 0.0 {
+                    blend_over(&mut px[row + x as usize], color, cov);
+                }
+            }
+        }
+    }
 }
 
 fn blend_over(dst: &mut Rgba8Pixel, src: Rgba8Pixel, cov: f32) {

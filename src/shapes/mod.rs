@@ -1,6 +1,8 @@
+pub mod circle;
 pub mod rectangle;
 pub mod stroke;
 
+use circle::Circle;
 use rectangle::Rectangle;
 use slint::Rgba8Pixel;
 use stroke::Stroke;
@@ -24,6 +26,7 @@ pub trait Draw {
 pub enum Shape {
     Stroke(Stroke),
     Rectangle(Rectangle),
+    Circle(Circle),
 }
 
 impl Shape {
@@ -31,6 +34,7 @@ impl Shape {
         match self {
             Shape::Stroke(s) => s,
             Shape::Rectangle(r) => r,
+            Shape::Circle(c) => c,
         }
     }
 
@@ -38,6 +42,7 @@ impl Shape {
         match self {
             Shape::Stroke(s) => s,
             Shape::Rectangle(r) => r,
+            Shape::Circle(c) => c,
         }
     }
 

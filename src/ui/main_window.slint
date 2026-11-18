@@ -36,7 +36,7 @@ export component MainWindow inherits Window {
     }
 
     TouchArea {
-        enabled: Actions.current-tool == Action.brush || Actions.current-tool == Action.rectangle;
+        enabled: Actions.current-tool == Action.brush || Actions.current-tool == Action.rectangle || Actions.current-tool == Action.circle;
         mouse-cursor: crosshair;
         pointer-event(e) => {
             if e.button == PointerEventButton.left {
