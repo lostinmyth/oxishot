@@ -192,10 +192,13 @@ export component StylePanel inherits Rectangle {
     property <Action> tool: Actions.current-tool;
     out property <bool> relevant: Styling.has-selection
         || tool == Action.brush || tool == Action.text || tool == Action.rectangle
-        || tool == Action.circle || tool == Action.arrow;
+        || tool == Action.circle || tool == Action.arrow || tool == Action.blur;
+    property <bool> show-color: Styling.has-selection ? Styling.selection-colored : tool != Action.blur;
     property <bool> show-fill: Styling.has-selection ? Styling.selection-fillable
         : tool == Action.rectangle || tool == Action.circle;
-    property <bool> show-width: Styling.has-selection ? Styling.selection-stroked : tool != Action.text;
+    property <bool> show-width: Styling.has-selection ? Styling.selection-stroked
+        : tool != Action.text && tool != Action.blur;
+    property <bool> show-strength: Styling.has-selection ? Styling.selection-blur : tool == Action.blur;
     property <bool> show-font: Styling.has-selection ? Styling.selection-text : tool == Action.text;
 
     // a number input has focus
@@ -221,7 +224,7 @@ export component StylePanel inherits Rectangle {
             padding: 4px;
             spacing: 3px;
 
-            Row {
+            if root.show-color: Row {
                 label: "Color";
                 ColorField {
                     value: Styling.stroke;
@@ -247,6 +250,20 @@ export component StylePanel inherits Rectangle {
                     edited(w) => {
                         Styling.radius = w / 2;
                         Styling.preview(StyleField.radius);
+                    }
+                    accepted => { root.input-accepted(); }
+                    focus-changed(f) => { root.typing = f; }
+                }
+            }
+
+            if root.show-strength: Row {
+                label: "Strength";
+                NumberField {
+                    value: Styling.blur;
+                    max: 100;
+                    edited(v) => {
+                        Styling.blur = v;
+                        Styling.preview(StyleField.blur);
                     }
                     accepted => { root.input-accepted(); }
                     focus-changed(f) => { root.typing = f; }

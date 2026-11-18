@@ -25,6 +25,10 @@ export global Canvas {
     // drag-overlay itself
     in property <image> drag-overlay;
     in property <bool> dragging;
+    // drag-overlay is redrawn in place as the shapes move and turn (they
+    // include a blur, which must look at what's under its new spot), so
+    // drag-offset and drag-angle only move the selection boxes and cursor
+    in property <bool> drag-live;
     in property <bool> rotating;
     in property <bool> scaling;
     in property <Vec2> drag-offset;

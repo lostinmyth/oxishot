@@ -9,6 +9,7 @@ use configuration::args::{Input, parse_args};
 use editor::{Bounds, Editor, SelectMode};
 use shapes::{
     arrow::Arrow,
+    blur::Blur,
     circle::Circle,
     rectangle::Rectangle,
     stroke::Stroke,
@@ -42,6 +43,7 @@ fn shape_for(tool: Action, p: Point, style: Style) -> Option<Shape> {
         Action::Rectangle => Shape::Rectangle(Rectangle::new(p, style)),
         Action::Circle => Shape::Circle(Circle::new(p, style)),
         Action::Arrow => Shape::Arrow(Arrow::new(p, style)),
+        Action::Blur => Shape::Blur(Blur::new(p, style)),
         _ => return None,
     })
 }
@@ -115,6 +117,7 @@ fn current_style(win: &MainWindow) -> Style {
             weight: s.get_font_weight() as f32,
             size: s.get_font_size(),
         },
+        blur: s.get_blur(),
     }
 }
 
@@ -138,10 +141,17 @@ fn push_style(win: &MainWindow, ed: &Editor) {
     let stroked = shapes.iter().find(|sh| sh.stroked());
     s.set_selection_fillable(fillable.is_some());
     s.set_selection_stroked(stroked.is_some());
+    let colored = shapes.iter().find(|sh| sh.colored());
+    s.set_selection_colored(colored.is_some());
     let text = shapes.iter().find(|sh| matches!(sh, Shape::Text(_)));
     s.set_selection_text(text.is_some());
-    if let Some(sh) = shapes.first() {
+    let blur = shapes.iter().find(|sh| matches!(sh, Shape::Blur(_)));
+    s.set_selection_blur(blur.is_some());
+    if let Some(sh) = colored {
         s.set_stroke(to_color(sh.style().color));
+    }
+    if let Some(sh) = blur {
+        s.set_blur(sh.style().blur);
     }
     if let Some(sh) = fillable {
         s.set_fill(sh.style().fill.map_or(slint::Color::default(), to_color));
@@ -169,6 +179,7 @@ fn push_selection(win: &slint::Weak<MainWindow>, ed: &Editor) {
         c.set_marquee(to_box(m));
     }
     c.set_dragging(ed.dragging());
+    c.set_drag_live(ed.drag_live());
     c.set_rotating(ed.rotating());
     c.set_scaling(ed.scaling());
     // the corners may have moved; the next hover recomputes these
@@ -232,7 +243,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .set_size(slint::PhysicalSize::new(width, height));
 
     let actions = window.global::<Actions>();
-    let editor = Rc::new(RefCell::new(Editor::new(width, height)));
+    let editor = Rc::new(RefCell::new(Editor::new(base.clone())));
     actions.on_dispatch({
         let (ed, win) = (editor.clone(), window.as_weak());
         move |action| {
@@ -364,13 +375,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let ed = &mut *guard;
             let win = win.unwrap();
 
-            if let Some((dx, dy)) = ed.drag_offset((x, y)) {
-                win.global::<Canvas>()
-                    .set_drag_offset(Vec2 { x: dx, y: dy });
+            if let Some((dx, dy)) = ed.move_to((x, y)) {
+                let c = win.global::<Canvas>();
+                if ed.drag_live() {
+                    c.set_drag_overlay(slint::Image::from_rgba8(ed.drag_layer.buf.clone()));
+                }
+                c.set_drag_offset(Vec2 { x: dx, y: dy });
                 return;
             }
             if let Some(((px, py), angle)) = ed.rotate_to((x, y)) {
                 let c = win.global::<Canvas>();
+                if ed.drag_live() {
+                    c.set_drag_overlay(slint::Image::from_rgba8(ed.drag_layer.buf.clone()));
+                }
                 c.set_drag_pivot(Vec2 { x: px, y: py });
                 c.set_drag_angle(angle.to_degrees());
                 push_selection(&win.as_weak(), ed); // boxes turn with the shapes
@@ -470,9 +487,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut ed = ed.borrow_mut();
             let starting = !ed.restyling();
             let changed = ed.restyle_live(|shape, st| match field {
-                StyleField::Stroke => st.color = style.color,
+                StyleField::Stroke if shape.colored() => st.color = style.color,
                 StyleField::Fill if shape.fillable() => st.fill = style.fill,
                 StyleField::Radius if shape.stroked() => st.radius = style.radius,
+                StyleField::Blur if matches!(shape, Shape::Blur(_)) => st.blur = style.blur,
                 _ if !matches!(shape, Shape::Text(_)) => {}
                 // the weight moves with the family to one it has
                 StyleField::FontFamily => {

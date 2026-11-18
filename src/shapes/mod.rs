@@ -1,10 +1,12 @@
 pub mod arrow;
+pub mod blur;
 pub mod circle;
 pub mod rectangle;
 pub mod stroke;
 pub mod text;
 
 use arrow::Arrow;
+use blur::Blur;
 use circle::Circle;
 use rectangle::Rectangle;
 use slint::Rgba8Pixel;
@@ -25,6 +27,8 @@ pub struct Style {
     pub fill: Option<Rgba8Pixel>,
     /// Only text uses it.
     pub font: text::Font,
+    /// Blur strength (px, roughly the Gaussian's standard deviation); only blurs use it.
+    pub blur: f32,
 }
 
 pub trait Draw {
@@ -236,6 +240,7 @@ pub enum Shape {
     Circle(Circle),
     Arrow(Arrow),
     Text(Text),
+    Blur(Blur),
 }
 
 impl Shape {
@@ -246,6 +251,7 @@ impl Shape {
             Shape::Circle(c) => c,
             Shape::Arrow(a) => a,
             Shape::Text(t) => t,
+            Shape::Blur(b) => b,
         }
     }
 
@@ -256,6 +262,7 @@ impl Shape {
             Shape::Circle(c) => c,
             Shape::Arrow(a) => a,
             Shape::Text(t) => t,
+            Shape::Blur(b) => b,
         }
     }
 
@@ -298,6 +305,7 @@ impl Shape {
             Shape::Circle(c) => &c.style,
             Shape::Arrow(a) => &a.style,
             Shape::Text(t) => &t.style,
+            Shape::Blur(b) => &b.style,
         }
     }
 
@@ -308,6 +316,7 @@ impl Shape {
             Shape::Circle(c) => &mut c.style,
             Shape::Arrow(a) => &mut a.style,
             Shape::Text(t) => &mut t.style,
+            Shape::Blur(b) => &mut b.style,
         }
     }
 
@@ -318,6 +327,11 @@ impl Shape {
 
     /// Whether `Style::radius` (stroke width) applies to this shape.
     pub fn stroked(&self) -> bool {
-        !matches!(self, Shape::Text(_))
+        !matches!(self, Shape::Text(_) | Shape::Blur(_))
+    }
+
+    /// Whether `Style::color` paints anything for this shape.
+    pub fn colored(&self) -> bool {
+        !matches!(self, Shape::Blur(_))
     }
 }

@@ -65,13 +65,13 @@ export component MainWindow inherits Window {
     }
 
     Image {
-        x: Canvas.drag-offset.x * 1phx;
-        y: Canvas.drag-offset.y * 1phx;
+        x: Canvas.drag-live ? 0 : Canvas.drag-offset.x * 1phx;
+        y: Canvas.drag-live ? 0 : Canvas.drag-offset.y * 1phx;
         width: root.img.width * 1phx;
         height: root.img.height * 1phx;
         source: Canvas.drag-overlay;
         visible: Canvas.dragging;
-        transform-rotation: Canvas.drag-angle;
+        transform-rotation: Canvas.drag-live ? 0deg : Canvas.drag-angle;
         transform-origin: { x: Canvas.drag-pivot.x * 1phx, y: Canvas.drag-pivot.y * 1phx };
     }
 
@@ -116,16 +116,18 @@ export component MainWindow inherits Window {
         viewbox-width: root.img.width;
         viewbox-height: root.img.height;
         commands: Canvas.live-path;
-        stroke: Styling.stroke;
-        stroke-width: Styling.radius * 2 * 1phx;
-        fill: Actions.current-tool == Action.rectangle || Actions.current-tool == Action.circle ? Styling.fill : transparent;
+        // a blur only shows its region until it's committed and rasterized
+        stroke: Actions.current-tool == Action.blur ? #ffffffcc : Styling.stroke;
+        stroke-width: Actions.current-tool == Action.blur ? 1px : Styling.radius * 2 * 1phx;
+        fill: Actions.current-tool == Action.rectangle || Actions.current-tool == Action.circle ? Styling.fill
+            : Actions.current-tool == Action.blur ? #ffffff26 : transparent;
         stroke-line-cap: round;
         // rectangles get square corners, matching Layer::box_outline
-        stroke-line-join: Actions.current-tool == Action.rectangle ? LineJoin.miter : LineJoin.round;
+        stroke-line-join: Actions.current-tool == Action.rectangle || Actions.current-tool == Action.blur ? LineJoin.miter : LineJoin.round;
     }
 
     touch := TouchArea {
-        enabled: Actions.current-tool == Action.select || Actions.current-tool == Action.brush || Actions.current-tool == Action.text || Actions.current-tool == Action.rectangle || Actions.current-tool == Action.circle || Actions.current-tool == Action.arrow;
+        enabled: Actions.current-tool == Action.select || Actions.current-tool == Action.brush || Actions.current-tool == Action.text || Actions.current-tool == Action.rectangle || Actions.current-tool == Action.circle || Actions.current-tool == Action.arrow || Actions.current-tool == Action.blur;
         // system resize cursors only come in fixed diagonals and theme sizes;
         // the icons below stand in for them, matching rotated boxes
         // a fresh shape stays selected under the drawing tools, so its
@@ -301,7 +303,7 @@ export component MainWindow inherits Window {
                 name: "Arrow", shortcut: "A",
                 action: Action.arrow
             },
-            { icon: @image-url("../assets/icons/blur.svg"), name: "Blur", shortcut: "", action: Action.blur },
+            { icon: @image-url("../assets/icons/blur.svg"), name: "Blur", shortcut: "U", action: Action.blur },
             {
                 icon: @image-url("../assets/icons/eyedropper.svg"),
                 name: "Eyedropper", shortcut: "",
@@ -368,6 +370,7 @@ export component MainWindow inherits Window {
                 if event.text == "r" { Actions.current-tool = Action.rectangle; return accept; }
                 if event.text == "o" { Actions.current-tool = Action.circle; return accept; }
                 if event.text == "a" { Actions.current-tool = Action.arrow; return accept; }
+                if event.text == "u" { Actions.current-tool = Action.blur; return accept; }
                 reject
             }
         }

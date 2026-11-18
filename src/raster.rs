@@ -4,13 +4,31 @@ use crate::shapes::{Frame, Style, points_bounds};
 
 pub struct Layer {
     pub buf: SharedPixelBuffer<Rgba8Pixel>,
+    /// The screenshot under the layer, which blurs read (shared, not copied).
+    base: SharedPixelBuffer<Rgba8Pixel>,
 }
 
+/// Box passes per axis in `blur_box`; three already look Gaussian.
+const BLUR_PASSES: usize = 3;
+
 impl Layer {
-    pub fn new(w: u32, h: u32) -> Self {
+    /// An empty layer the size of `base`, which it's drawn over.
+    pub fn new(base: SharedPixelBuffer<Rgba8Pixel>) -> Self {
         Self {
-            buf: SharedPixelBuffer::new(w, h),
+            buf: SharedPixelBuffer::new(base.width(), base.height()),
+            base,
         }
+    }
+
+    /// An empty layer over the same screenshot.
+    pub fn blank(&self) -> Self {
+        Self::new(self.base.clone())
+    }
+
+    /// An empty layer over this one and its screenshot, so blurs drawn on
+    /// it see both.
+    pub fn above(&self) -> Self {
+        Self::new(flatten(&self.base, &self.buf))
     }
 
     pub fn clear(&mut self) {
@@ -288,6 +306,132 @@ impl Layer {
                 }
             }
         }
+    }
+}
+
+impl Layer {
+    /// Blurs what shows inside the box `f` (this layer over the screenshot)
+    /// and paints the result back over it, so earlier shapes get blurred too.
+    /// `sigma` is about the standard deviation of the Gaussian it imitates:
+    /// a few box blurs in a row, each a sliding sum, so the cost doesn't
+    /// grow with the strength.
+    pub fn blur_box(&mut self, f: Frame, sigma: f32) {
+        let (w, h) = (self.buf.width() as i32, self.buf.height() as i32);
+        let ((bx0, by0), (bx1, by1)) = f.aabb();
+        let x0 = ((bx0 - 1.0).floor() as i32).max(0);
+        let y0 = ((by0 - 1.0).floor() as i32).max(0);
+        let x1 = ((bx1 + 1.0).ceil() as i32).min(w);
+        let y1 = ((by1 + 1.0).ceil() as i32).min(h);
+        if x0 >= x1 || y0 >= y1 {
+            return;
+        }
+
+        // n boxes of width d have variance n(d² - 1)/12
+        let d = (12.0 * sigma.max(0.0).powi(2) / BLUR_PASSES as f32 + 1.0).sqrt();
+        let r = ((d - 1.0) * 0.5).round() as usize;
+        // every pass reaches r px further out
+        let reach = (BLUR_PASSES * r) as i32;
+        let (sx0, sy0) = ((x0 - reach).max(0), (y0 - reach).max(0));
+        let (sx1, sy1) = ((x1 + reach).min(w), (y1 + reach).min(h));
+        let (sw, sh) = ((sx1 - sx0) as usize, (sy1 - sy0) as usize);
+        let (ow, oh) = ((x1 - x0) as usize, (y1 - y0) as usize);
+
+        // what's visible there now
+        let mut src = Vec::with_capacity(sw * sh);
+        let (top, base) = (self.buf.as_slice(), self.base.as_slice());
+        for y in sy0..sy1 {
+            let row = (y * w) as usize;
+            for x in sx0..sx1 {
+                let i = row + x as usize;
+                let mut p = base[i];
+                match top[i].a {
+                    0 => {}
+                    255 => p = top[i],
+                    _ => blend_over(&mut p, top[i], 1.0),
+                }
+                src.push(p);
+            }
+        }
+
+        // both axes run as row passes: each one writes its result transposed,
+        // keeping only the part the next step reads
+        let mut cols = vec![Rgba8Pixel::default(); ow * sh];
+        blur_rows_t(&src, sw, r, (x0 - sx0) as usize, &mut cols);
+        let mut out = vec![Rgba8Pixel::default(); oh * ow];
+        blur_rows_t(&cols, sh, r, (y0 - sy0) as usize, &mut out);
+
+        // painted with box_fill's coverage, so turned edges stay smooth
+        let (s, k) = f.angle.sin_cos();
+        let span = |x: f32, h: f32| (f32::min(x + 0.5, h) - f32::max(x - 0.5, -h)).max(0.0);
+        let px = self.buf.make_mut_slice();
+        for y in y0..y1 {
+            let row = (y * w) as usize;
+            let orow = (y - y0) as usize * ow;
+            for x in x0..x1 {
+                let (dx, dy) = (x as f32 + 0.5 - f.center.0, y as f32 + 0.5 - f.center.1);
+                let (fx, fy) = (dx * k + dy * s, dy * k - dx * s);
+                let cov = span(fx, f.half.0) * span(fy, f.half.1);
+                if cov > 0.0 {
+                    let p = out[orow + (x - x0) as usize];
+                    blend_over(&mut px[row + x as usize], p, cov.min(1.0));
+                }
+            }
+        }
+    }
+}
+
+/// Box-blurs each `w`-pixel row of `src` `BLUR_PASSES` times with radius
+/// `r` (the edge pixels repeat outward), then writes columns `lo..` of the
+/// result into `dst` transposed: column `lo + i` becomes row `i`, so `dst`
+/// is as wide as `src` is tall, and the next pass reads it row by row.
+fn blur_rows_t(src: &[Rgba8Pixel], w: usize, r: usize, lo: usize, dst: &mut [Rgba8Pixel]) {
+    let rows = src.len() / w;
+    let n = dst.len() / rows; // columns kept
+    let (mut a, mut b) = (vec![Rgba8Pixel::default(); w], vec![Rgba8Pixel::default(); w]);
+    for (y, line) in src.chunks_exact(w).enumerate() {
+        a.copy_from_slice(line);
+        for _ in 0..BLUR_PASSES {
+            box_line(&a, &mut b, r);
+            std::mem::swap(&mut a, &mut b);
+        }
+        for (i, &p) in a[lo..lo + n].iter().enumerate() {
+            dst[i * rows + y] = p;
+        }
+    }
+}
+
+/// One box blur of radius `r` along a line: a running sum per channel,
+/// moved one pixel at a time, so each output costs an add and a subtract.
+fn box_line(src: &[Rgba8Pixel], dst: &mut [Rgba8Pixel], r: usize) {
+    let last = src.len() as isize - 1;
+    let at = |i: isize| src[i.clamp(0, last) as usize];
+    let ri = r as isize;
+    let d = 2 * r as u32 + 1;
+    // dividing by d is a multiply by a 32.32 reciprocal: rounding it up
+    // keeps the quotient exact for sums this small (at most 255 * d)
+    let m = (1u64 << 32).div_ceil(d as u64);
+    let div = |s: u32| (((s + d / 2) as u64 * m) >> 32) as u8;
+
+    let mut sum = [0u32; 4];
+    for i in -ri..=ri {
+        let p = at(i);
+        sum[0] += p.r as u32;
+        sum[1] += p.g as u32;
+        sum[2] += p.b as u32;
+        sum[3] += p.a as u32;
+    }
+    for (x, out) in dst.iter_mut().enumerate() {
+        *out = Rgba8Pixel {
+            r: div(sum[0]),
+            g: div(sum[1]),
+            b: div(sum[2]),
+            a: div(sum[3]),
+        };
+        let (add, sub) = (at(x as isize + ri + 1), at(x as isize - ri));
+        sum[0] = sum[0] + add.r as u32 - sub.r as u32;
+        sum[1] = sum[1] + add.g as u32 - sub.g as u32;
+        sum[2] = sum[2] + add.b as u32 - sub.b as u32;
+        sum[3] = sum[3] + add.a as u32 - sub.a as u32;
     }
 }
 

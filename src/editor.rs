@@ -1,4 +1,4 @@
-use slint::Rgba8Pixel;
+use slint::{Rgba8Pixel, SharedPixelBuffer};
 
 use crate::{
     raster::Layer,
@@ -100,13 +100,18 @@ pub struct Editor {
     /// Indices into `shapes`, sorted ascending.
     pub selected: Vec<usize>,
     gesture: Gesture,
+    /// The lifted selection holds a blur, which must be redrawn wherever
+    /// it goes (it blurs what's under it), so `drag_layer` follows moves
+    /// and turns itself instead of being shifted by the UI.
+    live: bool,
 }
 
 impl Editor {
-    pub fn new(width: u32, height: u32) -> Self {
+    /// An editor for shapes drawn over `base`, the screenshot.
+    pub fn new(base: SharedPixelBuffer<Rgba8Pixel>) -> Self {
         Self {
-            layer: Layer::new(width, height),
-            drag_layer: Layer::new(width, height),
+            layer: Layer::new(base.clone()),
+            drag_layer: Layer::new(base),
             shapes: Vec::new(),
             undo: Vec::new(),
             redo: Vec::new(),
@@ -114,6 +119,7 @@ impl Editor {
             live_path: String::new(),
             selected: Vec::new(),
             gesture: Gesture::Idle,
+            live: false,
         }
     }
 
@@ -332,15 +338,51 @@ impl Editor {
     /// Moves the selection off the main layer onto `drag_layer`.
     fn lift(&mut self) {
         self.layer.clear();
-        self.drag_layer.clear();
         let mut sel = self.selected.iter().peekable();
         for (j, s) in self.shapes.iter().enumerate() {
-            if sel.next_if_eq(&&j).is_some() {
-                s.rasterize(&mut self.drag_layer);
-            } else {
+            if sel.next_if_eq(&&j).is_none() {
                 s.rasterize(&mut self.layer);
             }
         }
+        self.live = (self.selected.iter()).any(|&i| matches!(self.shapes[i], Shape::Blur(_)));
+        // only blurs look through drag_layer, so only they need the
+        // (full-image) composite of what stays behind
+        self.drag_layer = if self.live {
+            self.layer.above()
+        } else {
+            self.layer.blank()
+        };
+        for &i in &self.selected {
+            self.shapes[i].rasterize(&mut self.drag_layer);
+        }
+    }
+
+    /// Redraws `drag_layer` with copies of the selected shapes changed by `f`.
+    fn redraw_lifted(&mut self, f: impl Fn(&mut Shape)) {
+        // a fresh buffer instead of clear(): the UI still holds the old one,
+        // so clearing would first copy it just to overwrite it
+        self.drag_layer = self.drag_layer.blank();
+        for &i in &self.selected {
+            let mut shape = self.shapes[i].clone();
+            f(&mut shape);
+            shape.rasterize(&mut self.drag_layer);
+        }
+    }
+
+    /// Whether `drag_layer` is drawn in place (see `live`), so the UI
+    /// mustn't shift or turn it.
+    pub fn drag_live(&self) -> bool {
+        self.live && self.dragging()
+    }
+
+    /// Updates an active move for the pointer at `p`, redrawing `drag_layer`
+    /// if it's live. Returns the offset so far, or None when not moving.
+    pub fn move_to(&mut self, p: Point) -> Option<Point> {
+        let d = self.drag_offset(p)?;
+        if self.live {
+            self.redraw_lifted(|s| s.translate(d));
+        }
+        Some(d)
     }
 
     /// (selection index, corner index) of the scale handle under `p`.
@@ -382,8 +424,9 @@ impl Editor {
         })
     }
 
-    /// Updates an active rotation for the pointer at `p`.
-    /// Returns (pivot, angle in radians), or None when not rotating.
+    /// Updates an active rotation for the pointer at `p`, redrawing
+    /// `drag_layer` if it's live. Returns (pivot, angle in radians), or
+    /// None when not rotating.
     pub fn rotate_to(&mut self, p: Point) -> Option<(Point, f32)> {
         let Gesture::Rotate {
             pivot,
@@ -395,7 +438,11 @@ impl Editor {
             return None;
         };
         *angle = (p.1 - pivot.1).atan2(p.0 - pivot.0) - *start;
-        Some((*pivot, *angle))
+        let (pivot, angle) = (*pivot, *angle);
+        if self.live {
+            self.redraw_lifted(|s| s.rotate(pivot, angle));
+        }
+        Some((pivot, angle))
     }
 
     pub fn rotating(&self) -> bool {
@@ -428,15 +475,7 @@ impl Editor {
             (axis_factor(v.0, g.0), axis_factor(v.1, g.1))
         };
         let s = *scale;
-
-        // a fresh buffer instead of clear(): the UI still holds the old one,
-        // so clearing would first copy it just to overwrite it
-        self.drag_layer = Layer::new(self.drag_layer.buf.width(), self.drag_layer.buf.height());
-        for &i in &self.selected {
-            let mut shape = self.shapes[i].clone();
-            shape.scale(&s);
-            shape.rasterize(&mut self.drag_layer);
-        }
+        self.redraw_lifted(|shape| shape.scale(&s));
         true
     }
 
@@ -604,7 +643,7 @@ impl Editor {
             _ => return false,
         }
         // a fresh buffer instead of clear(), as in scale_to
-        self.drag_layer = Layer::new(self.drag_layer.buf.width(), self.drag_layer.buf.height());
+        self.drag_layer = self.drag_layer.blank();
         for &i in &self.selected {
             let shape = &mut self.shapes[i];
             let mut style = *shape.style();
@@ -645,10 +684,11 @@ impl Editor {
     /// recently drawn first, at most `max`.
     pub fn used_colors(&self, max: usize) -> Vec<Rgba8Pixel> {
         let mut out = Vec::new();
-        let styles = self.shapes.iter().rev().map(|s| (s.style(), s.fillable()));
-        for (st, fillable) in styles {
+        let styles = self.shapes.iter().rev().map(|s| (s.style(), s.colored(), s.fillable()));
+        for (st, colored, fillable) in styles {
+            let color = Some(st.color).filter(|_| colored);
             let fill = st.fill.filter(|_| fillable);
-            for c in std::iter::once(st.color).chain(fill) {
+            for c in color.into_iter().chain(fill) {
                 if c.a > 0 && !out.contains(&c) {
                     out.push(c);
                     if out.len() == max {

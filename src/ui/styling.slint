@@ -1,4 +1,4 @@
-export enum StyleField { stroke, fill, radius, font-family, font-weight, font-size }
+export enum StyleField { stroke, fill, radius, font-family, font-weight, font-size, blur }
 
 export struct ParsedColor { ok: bool, color: color }
 
@@ -15,6 +15,8 @@ export global Styling {
     in-out property <string> font-family;
     in-out property <int> font-weight: 400;
     in-out property <float> font-size: 24;
+    // blur strength (px, about the Gaussian's standard deviation)
+    in-out property <float> blur: 8;
     // set from Rust: the weights `font-family` has, ascending
     in property <[int]> font-weights: [400];
 
@@ -24,6 +26,9 @@ export global Styling {
     in property <bool> selection-fillable;
     in property <bool> selection-stroked;
     in property <bool> selection-text;
+    // some selected shape uses the color / is a blur
+    in property <bool> selection-colored;
+    in property <bool> selection-blur;
     // distinct colors the shapes use, most recent first
     in property <[color]> used-colors;
 
