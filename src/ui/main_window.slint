@@ -258,6 +258,8 @@ export component MainWindow inherits Window {
                 if event.modifiers.control {
                     if event.text == "z" { Actions.dispatch(Action.undo); return accept; }
                     if event.text == "y" { Actions.dispatch(Action.redo); return accept; }
+                    if event.text == "s" { Actions.dispatch(Action.save); return accept; }
+                    if event.text == "c" { Actions.dispatch(Action.copy); return accept; }
                     if event.text == "a" {
                         Actions.current-tool = Action.select;
                         Actions.dispatch(Action.select-all);

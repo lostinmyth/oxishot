@@ -201,3 +201,19 @@ fn blend_over(dst: &mut Rgba8Pixel, src: Rgba8Pixel, cov: f32) {
         a: (oa * 255.0) as u8,
     }
 }
+
+/// The final image: `overlay` blended over a copy of `base` (same size).
+pub fn flatten(
+    base: &SharedPixelBuffer<Rgba8Pixel>,
+    overlay: &SharedPixelBuffer<Rgba8Pixel>,
+) -> SharedPixelBuffer<Rgba8Pixel> {
+    let mut out = base.clone();
+    for (d, &s) in out.make_mut_slice().iter_mut().zip(overlay.as_slice()) {
+        match s.a {
+            0 => {}
+            255 => *d = s,
+            _ => blend_over(d, s, 1.0),
+        }
+    }
+    out
+}

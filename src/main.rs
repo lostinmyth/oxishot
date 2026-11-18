@@ -1,5 +1,6 @@
 mod configuration;
 mod editor;
+mod export;
 mod raster;
 mod shapes;
 mod utils;
@@ -8,7 +9,12 @@ use configuration::args::{Input, parse_args};
 use editor::{Bounds, Editor, SelectMode};
 use shapes::{arrow::Arrow, circle::Circle, rectangle::Rectangle, stroke::Stroke, text::Text};
 use slint::{ModelRc, Rgba8Pixel, VecModel};
-use std::{cell::RefCell, env, rc::Rc};
+use std::{
+    cell::RefCell,
+    path::Path,
+    rc::Rc,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use crate::shapes::{Frame, Point, Shape, Style};
 
@@ -80,7 +86,25 @@ fn push_selection(win: &slint::Weak<MainWindow>, ed: &Editor) {
     c.set_scale_hover(false);
 }
 
+/// The file name the save dialog suggests: -o's, or a timestamped one.
+fn default_name(output: Option<&Path>) -> String {
+    if let Some(name) = output.and_then(|p| p.file_name()) {
+        return name.to_string_lossy().into_owned();
+    }
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    format!("swagshot-{secs}.png")
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(target_os = "linux")]
+    {
+        let mut argv = std::env::args().skip(1);
+        if argv.next().as_deref() == Some(export::SERVE_ARG) {
+            return export::serve(argv);
+        }
+    }
     let args = parse_args()?;
 
     let screenshot = match args.input {
@@ -89,6 +113,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let screenshot_size = screenshot.size();
+    let base = screenshot.to_rgba8().ok_or("could not decode the image")?;
+    // -o only presets where the save dialog starts
+    let output = args.output;
 
     let window = MainWindow::new()?;
     let width = screenshot_size.width;
@@ -101,7 +128,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let actions = window.global::<Actions>();
     let editor = Rc::new(RefCell::new(Editor::new(width, height)));
-
     actions.on_dispatch({
         let (ed, win) = (editor.clone(), window.as_weak());
         move |action| {
@@ -131,8 +157,43 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         push_selection(&win, &ed);
                     }
                 }
-                Action::Save => { /* ... */ }
-                Action::Copy => { /* ... */ }
+                Action::Save => {
+                    // snapshot now; the dialog runs without blocking the UI
+                    let img = raster::flatten(&base, &ed.layer.buf);
+                    let mut dialog = rfd::AsyncFileDialog::new()
+                        .add_filter("PNG image", &["png"])
+                        .set_file_name(default_name(output.as_deref()));
+                    if let Some(dir) = output.as_deref().and_then(|p| p.parent()) {
+                        if !dir.as_os_str().is_empty() {
+                            dialog = dialog.set_directory(dir);
+                        }
+                    }
+                    if let Some(w) = win.upgrade() {
+                        dialog = dialog.set_parent(&w.window().window_handle());
+                    }
+                    let _ = slint::spawn_local(async move {
+                        let Some(file) = dialog.save_file().await else {
+                            return;
+                        };
+                        let path = file.path();
+                        match export::save_png(&img, path) {
+                            Ok(()) => {
+                                eprintln!("saved to {}", path.display());
+                                let _ = slint::quit_event_loop();
+                            }
+                            Err(e) => eprintln!("could not save {}: {e}", path.display()),
+                        }
+                    });
+                }
+                Action::Copy => {
+                    let img = raster::flatten(&base, &ed.layer.buf);
+                    match export::copy(&img) {
+                        Ok(()) => {
+                            let _ = slint::quit_event_loop();
+                        }
+                        Err(e) => eprintln!("could not copy: {e}"),
+                    }
+                }
                 Action::Exit => {
                     let _ = slint::quit_event_loop();
                 }
