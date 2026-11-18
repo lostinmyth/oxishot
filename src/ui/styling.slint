@@ -1,0 +1,31 @@
+export enum StyleField { stroke, fill, radius }
+
+export struct ParsedColor { ok: bool, color: color }
+
+// Style for new shapes, and the selection's style while one is selected
+// (Rust mirrors the selected shapes' style into it).
+export global Styling {
+    in-out property <color> stroke: #ef4444;
+    // fully transparent means no fill
+    in-out property <color> fill: transparent;
+    // stroke half-width (px)
+    in-out property <float> radius: 3;
+
+    // set from Rust: something is selected, so edits restyle it
+    in property <bool> has-selection;
+    // some selected shape takes a fill / a stroke width
+    in property <bool> selection-fillable;
+    in property <bool> selection-stroked;
+    // distinct colors the shapes use, most recent first
+    in property <[color]> used-colors;
+
+    // a field above changed (already stored); Rust shows it on the selection
+    // live, and `commit` turns everything since the last commit into one undo step
+    callback preview(StyleField);
+    callback commit();
+
+    // "#rrggbb", plus "aa" when not opaque
+    pure callback to-hex(color) -> string;
+    // accepts 3, 4, 6 or 8 hex digits, with or without the "#"
+    pure callback parse-hex(string) -> ParsedColor;
+}

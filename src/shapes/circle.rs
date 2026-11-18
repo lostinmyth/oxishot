@@ -65,6 +65,9 @@ impl Draw for Circle {
 
     fn rasterize(&self, layer: &mut crate::raster::Layer) {
         let f = self.outline();
+        if let Some(fill) = self.style.fill {
+            layer.ellipse_fill(f.center, f.half, f.angle, fill);
+        }
         layer.ellipse(f.center, f.half, f.angle, self.style);
     }
 
@@ -82,6 +85,9 @@ impl Draw for Circle {
         let (ux, uy) = ((px - cx) / rx, (py - cy) / ry);
         let k0 = (ux * ux + uy * uy).sqrt();
         let (vx, vy) = (ux / rx, uy / ry);
+        if self.style.fill.is_some() && k0 <= 1.0 {
+            return true;
+        }
         let k1 = (vx * vx + vy * vy).sqrt();
         k1 > 1e-6 && (k0 * (k0 - 1.0) / k1).abs() <= reach
     }

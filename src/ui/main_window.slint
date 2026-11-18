@@ -3,9 +3,12 @@ import "../assets/fonts/DejaVuSans.ttf";
 
 import { Action, Actions } from "actions.slint";
 import { Canvas, SelectionMode } from "canvas.slint";
+import { StylePanel, ColorPopover } from "style_panel.slint";
+import { Styling, StyleField } from "styling.slint";
 
 export { Actions, Action } from "./actions.slint";
 export { Canvas, SelectionBox, Vec2, SelectionMode } from "canvas.slint";
+export { Styling, StyleField, ParsedColor } from "styling.slint";
 
 export component MainWindow inherits Window {
     in property <image> img;
@@ -28,6 +31,17 @@ export component MainWindow inherits Window {
             Canvas.commit-text(root.text-x / 1phx, root.text-y / 1phx, text-editor.text);
         }
         root.cancel-text();
+    }
+
+    // the color popover is open, editing `picking-field`
+    property <bool> picking;
+    property <StyleField> picking-field;
+
+    function close-picker() {
+        if !root.picking { return; }
+        root.picking = false;
+        Styling.commit();
+        keys.focus();
     }
 
     function cancel-text() {
@@ -103,8 +117,9 @@ export component MainWindow inherits Window {
         viewbox-width: root.img.width;
         viewbox-height: root.img.height;
         commands: Canvas.live-path;
-        stroke: Canvas.brush-color;
-        stroke-width: Canvas.brush-radius * 2 * 1phx;
+        stroke: Styling.stroke;
+        stroke-width: Styling.radius * 2 * 1phx;
+        fill: Actions.current-tool == Action.rectangle || Actions.current-tool == Action.circle ? Styling.fill : transparent;
         stroke-line-cap: round;
         // rectangles get square corners, matching Layer::box_outline
         stroke-line-join: Actions.current-tool == Action.rectangle ? LineJoin.miter : LineJoin.round;
@@ -123,6 +138,9 @@ export component MainWindow inherits Window {
                 Canvas.hover(self.mouse-x / 1phx, self.mouse-y / 1phx);
             }
             if e.button == PointerEventButton.left {
+                // leave an input (e.g. the width field) so shortcuts work again;
+                // the text tool moves focus to its own editor below
+                if e.kind == PointerEventKind.down { keys.focus(); }
                 if e.kind == PointerEventKind.down && Actions.current-tool == Action.text {
                     // clicking elsewhere commits the previous text and starts a new one
                     root.commit-text();
@@ -189,7 +207,7 @@ export component MainWindow inherits Window {
             single-line: true;
             font-family: "DejaVu Sans";
             font-size: Canvas.font-size * 1phx;
-            color: Canvas.brush-color;
+            color: Styling.stroke;
             accepted => { root.commit-text(); }
         }
     }
@@ -211,10 +229,30 @@ export component MainWindow inherits Window {
         selectable: false;
         view-width: parent.width;
         tools: [
+            { icon: @image-url("../assets/icons/settings.svg"), name: "Settings", shortcut: "", action: Action.settings },
             { icon: @image-url("../assets/icons/save.svg"), name: "Save", shortcut: "Ctrl+S", action: Action.save },
             { icon: @image-url("../assets/icons/copy.svg"), name: "Copy", shortcut: "Ctrl+C", action: Action.copy },
             { icon: @image-url("../assets/icons/cancel.svg"), name: "Exit", shortcut: "", action: Action.exit },
         ];
+    }
+
+    // under the save/copy bar: the style of new shapes, or of the selection
+    style-panel := StylePanel {
+        visible: self.relevant;
+        width: controlbar.width;
+        x: parent.width - self.width - 8px;
+        y: controlbar.y + controlbar.height + 6px;
+        picking: root.picking;
+        picking-field: root.picking-field;
+        open-picker(f) => {
+            root.picking-field = f;
+            root.picking = true;
+            popover.open-with(f == StyleField.fill ? Styling.fill : Styling.stroke);
+        }
+        changed relevant => {
+            if !self.relevant { root.close-picker(); }
+        }
+        width-accepted => { keys.focus(); }
     }
 
     paintbar := Toolbar {
@@ -259,7 +297,25 @@ export component MainWindow inherits Window {
         ];
         }
 
+        // above everything else: a click outside the popover just closes it
+        if root.picking: TouchArea {
+            pointer-event(e) => {
+                if e.kind == PointerEventKind.down { root.close-picker(); }
+            }
+        }
+
+        popover := ColorPopover {
+            visible: root.picking;
+            x: parent.width - self.width - 8px;
+            y: max(8px, min(style-panel.y + style-panel.height + 6px, parent.height - self.height - 8px));
+            field: root.picking-field;
+            close => { root.close-picker(); }
+        }
+
+        // covers the whole window on top of everything; it's only for keys,
+        // so it must not take presses (unfocused, it would eat the first one)
         keys := FocusScope {
+            focus-on-click: false;
             key-pressed(event) => {
                 if event.modifiers.control {
                     if event.text == "z" { Actions.dispatch(Action.undo); return accept; }

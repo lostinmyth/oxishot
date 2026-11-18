@@ -15,10 +15,14 @@ use crate::raster::Layer;
 
 pub type Point = (f32, f32);
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct Style {
+    /// Stroke color (text: glyph color).
     pub color: Rgba8Pixel,
+    /// Stroke half-width; unused by text.
     pub radius: f32,
+    /// Interior color; only rectangles and circles have one.
+    pub fill: Option<Rgba8Pixel>,
 }
 
 pub trait Draw {
@@ -283,5 +287,35 @@ impl Shape {
 
     pub fn scale(&mut self, s: &Scale) {
         self.inner_mut().scale(s);
+    }
+
+    pub fn style(&self) -> &Style {
+        match self {
+            Shape::Stroke(s) => &s.style,
+            Shape::Rectangle(r) => &r.style,
+            Shape::Circle(c) => &c.style,
+            Shape::Arrow(a) => &a.style,
+            Shape::Text(t) => &t.style,
+        }
+    }
+
+    pub fn style_mut(&mut self) -> &mut Style {
+        match self {
+            Shape::Stroke(s) => &mut s.style,
+            Shape::Rectangle(r) => &mut r.style,
+            Shape::Circle(c) => &mut c.style,
+            Shape::Arrow(a) => &mut a.style,
+            Shape::Text(t) => &mut t.style,
+        }
+    }
+
+    /// Whether `Style::fill` paints anything for this shape.
+    pub fn fillable(&self) -> bool {
+        matches!(self, Shape::Rectangle(_) | Shape::Circle(_))
+    }
+
+    /// Whether `Style::radius` (stroke width) applies to this shape.
+    pub fn stroked(&self) -> bool {
+        !matches!(self, Shape::Text(_))
     }
 }

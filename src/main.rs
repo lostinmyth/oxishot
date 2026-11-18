@@ -39,10 +39,16 @@ fn shape_for(tool: Action, p: Point, style: Style) -> Option<Shape> {
     })
 }
 
+/// How many used colors the color popover lists (two rows).
+const USED_COLORS: usize = 18;
+
 fn push_overlay(win: &slint::Weak<MainWindow>, ed: &Editor) {
     if let Some(win) = win.upgrade() {
         win.global::<Canvas>()
             .set_overlay(slint::Image::from_rgba8(ed.layer.buf.clone()));
+        let used: Vec<_> = ed.used_colors(USED_COLORS).into_iter().map(to_color).collect();
+        win.global::<Styling>()
+            .set_used_colors(ModelRc::new(VecModel::from(used)));
     }
     push_selection(win, ed);
 }
@@ -68,9 +74,63 @@ fn frame_box(f: Frame) -> SelectionBox {
     }
 }
 
+fn to_color(p: Rgba8Pixel) -> slint::Color {
+    slint::Color::from_argb_u8(p.a, p.r, p.g, p.b)
+}
+
+/// "#rgb", "#rgba", "#rrggbb" or "#rrggbbaa" ("#" optional).
+fn parse_hex(s: &str) -> Option<slint::Color> {
+    let s = s.trim();
+    let s = s.strip_prefix('#').unwrap_or(s);
+    let digit = |i: usize| u8::from_str_radix(s.get(i..i + 1)?, 16).ok();
+    let pair = |i: usize| u8::from_str_radix(s.get(i..i + 2)?, 16).ok();
+    let (r, g, b, a) = match s.len() {
+        3 | 4 => {
+            let d = |i| digit(i).map(|v| v * 17);
+            (d(0)?, d(1)?, d(2)?, if s.len() == 4 { d(3)? } else { 255 })
+        }
+        6 | 8 => (pair(0)?, pair(2)?, pair(4)?, if s.len() == 8 { pair(6)? } else { 255 }),
+        _ => return None,
+    };
+    Some(slint::Color::from_argb_u8(a, r, g, b))
+}
+
+/// The style new shapes get, as set in the style panel.
+fn current_style(win: &MainWindow) -> Style {
+    let s = win.global::<Styling>();
+    let fill = to_px(s.get_fill());
+    Style {
+        color: to_px(s.get_stroke()),
+        radius: s.get_radius(),
+        fill: (fill.a > 0).then_some(fill),
+    }
+}
+
+/// Shows the selection's style in the style panel: each field comes from
+/// the first selected shape that uses it.
+fn push_style(win: &MainWindow, ed: &Editor) {
+    let s = win.global::<Styling>();
+    let shapes: Vec<&Shape> = ed.selected.iter().map(|&i| &ed.shapes[i]).collect();
+    s.set_has_selection(!shapes.is_empty());
+    let fillable = shapes.iter().find(|sh| sh.fillable());
+    let stroked = shapes.iter().find(|sh| sh.stroked());
+    s.set_selection_fillable(fillable.is_some());
+    s.set_selection_stroked(stroked.is_some());
+    if let Some(sh) = shapes.first() {
+        s.set_stroke(to_color(sh.style().color));
+    }
+    if let Some(sh) = fillable {
+        s.set_fill(sh.style().fill.map_or(slint::Color::default(), to_color));
+    }
+    if let Some(sh) = stroked {
+        s.set_radius(sh.style().radius);
+    }
+}
+
 /// Mirrors the selection boxes, marquee and drag state into the UI.
 fn push_selection(win: &slint::Weak<MainWindow>, ed: &Editor) {
     let Some(win) = win.upgrade() else { return };
+    push_style(&win, ed);
     let c = win.global::<Canvas>();
     let boxes: Vec<_> = ed.selection_frames().into_iter().map(frame_box).collect();
     c.set_selection(ModelRc::new(VecModel::from(boxes)));
@@ -212,10 +272,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         move |x, y| {
             let win = win.unwrap();
             let c = win.global::<Canvas>();
-            let style = Style {
-                color: to_px(c.get_brush_color()),
-                radius: c.get_brush_radius(),
-            };
+            let style = current_style(&win);
             let tool = win.global::<Actions>().get_current_tool();
             let Some(shape) = shape_for(tool, (x, y), style) else {
                 return;
@@ -338,14 +395,65 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 size: c.get_font_size(),
                 angle: 0.0,
                 style: Style {
-                    color: to_px(c.get_brush_color()),
                     radius: 0.0,
+                    fill: None,
+                    ..current_style(&w)
                 },
             });
             let mut ed = ed.borrow_mut();
             ed.commit(shape);
             push_overlay(&win, &ed);
         }
+    });
+
+    // style panel edits preview on the selection; commit makes them one undo step
+    let styling = window.global::<Styling>();
+    styling.on_preview({
+        let (ed, win) = (editor.clone(), window.as_weak());
+        move |field| {
+            let Some(w) = win.upgrade() else { return };
+            let style = current_style(&w);
+            let mut ed = ed.borrow_mut();
+            let starting = !ed.restyling();
+            let changed = ed.restyle_live(|shape, st| match field {
+                StyleField::Stroke => st.color = style.color,
+                StyleField::Fill if shape.fillable() => st.fill = style.fill,
+                StyleField::Radius if shape.stroked() => st.radius = style.radius,
+                _ => {}
+            });
+            if !changed {
+                return;
+            }
+            let c = w.global::<Canvas>();
+            if starting {
+                // the selection was just lifted off the main layer
+                c.set_drag_offset(Vec2 { x: 0.0, y: 0.0 });
+                c.set_drag_angle(0.0);
+                c.set_overlay(slint::Image::from_rgba8(ed.layer.buf.clone()));
+            }
+            c.set_drag_overlay(slint::Image::from_rgba8(ed.drag_layer.buf.clone()));
+            push_selection(&win, &ed); // a new width resizes the boxes
+        }
+    });
+    styling.on_commit({
+        let (ed, win) = (editor.clone(), window.as_weak());
+        move || {
+            let mut ed = ed.borrow_mut();
+            if ed.end_restyle() {
+                push_overlay(&win, &ed);
+            }
+        }
+    });
+    styling.on_to_hex(|c| {
+        let mut hex = format!("#{:02x}{:02x}{:02x}", c.red(), c.green(), c.blue());
+        if c.alpha() < 255 {
+            hex += &format!("{:02x}", c.alpha());
+        }
+        hex.into()
+    });
+    styling.on_parse_hex(|s| match parse_hex(&s) {
+        Some(color) => ParsedColor { ok: true, color },
+        None => ParsedColor::default(),
     });
 
     let _ = window.run();

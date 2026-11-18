@@ -170,6 +170,73 @@ impl Layer {
         }
     }
 
+    /// Solid rectangle with center `c`, half-size `half` and rotation `angle`.
+    pub fn box_fill(&mut self, c: (f32, f32), half: (f32, f32), angle: f32, color: Rgba8Pixel) {
+        let (s, k) = angle.sin_cos();
+        let ((bx0, by0), (bx1, by1)) = Frame { center: c, half, angle }.aabb();
+        let (w, h) = (self.buf.width() as i32, self.buf.height() as i32);
+        let x0 = ((bx0 - 1.0).floor() as i32).max(0);
+        let y0 = ((by0 - 1.0).floor() as i32).max(0);
+        let x1 = ((bx1 + 1.0).ceil() as i32).min(w);
+        let y1 = ((by1 + 1.0).ceil() as i32).min(h);
+
+        // same per-axis pixel overlap as box_outline
+        let span = |x: f32, h: f32| (f32::min(x + 0.5, h) - f32::max(x - 0.5, -h)).max(0.0);
+        let px = self.buf.make_mut_slice();
+
+        for y in y0..y1 {
+            let row = (y * w) as usize;
+            for x in x0..x1 {
+                let (dx, dy) = (x as f32 + 0.5 - c.0, y as f32 + 0.5 - c.1);
+                let (fx, fy) = (dx * k + dy * s, dy * k - dx * s);
+                let cov = span(fx, half.0) * span(fy, half.1);
+                if cov > 0.0 {
+                    blend_over(&mut px[row + x as usize], color, cov.min(1.0));
+                }
+            }
+        }
+    }
+
+    /// Solid ellipse with center `c`, radii `r` and rotation `angle`.
+    pub fn ellipse_fill(&mut self, c: (f32, f32), r: (f32, f32), angle: f32, color: Rgba8Pixel) {
+        let (rx, ry) = r;
+        if rx < 0.5 || ry < 0.5 {
+            return; // no area; the outline covers it
+        }
+        let (s, k) = angle.sin_cos();
+        let ex = (rx * rx * k * k + ry * ry * s * s).sqrt();
+        let ey = (rx * rx * s * s + ry * ry * k * k).sqrt();
+        let (w, h) = (self.buf.width() as i32, self.buf.height() as i32);
+        let x0 = ((c.0 - ex - 1.0).floor() as i32).max(0);
+        let y0 = ((c.1 - ey - 1.0).floor() as i32).max(0);
+        let x1 = ((c.0 + ex + 1.0).ceil() as i32).min(w);
+        let y1 = ((c.1 + ey + 1.0).ceil() as i32).min(h);
+
+        let (irx, iry) = (1.0 / rx, 1.0 / ry);
+        let px = self.buf.make_mut_slice();
+
+        for y in y0..y1 {
+            let row = (y * w) as usize;
+            for x in x0..x1 {
+                let (dx, dy) = (x as f32 + 0.5 - c.0, y as f32 + 0.5 - c.1);
+                let (fx, fy) = (dx * k + dy * s, dy * k - dx * s);
+                let (ux, uy) = (fx * irx, fy * iry);
+                let k0 = (ux * ux + uy * uy).sqrt();
+                let (vx, vy) = (ux * irx, uy * iry);
+                let k1 = (vx * vx + vy * vy).sqrt();
+                // signed version of the distance in `ellipse` (negative inside)
+                let cov = if k1 < 1e-6 {
+                    1.0
+                } else {
+                    (0.5 - k0 * (k0 - 1.0) / k1).clamp(0.0, 1.0)
+                };
+                if cov > 0.0 {
+                    blend_over(&mut px[row + x as usize], color, cov);
+                }
+            }
+        }
+    }
+
     /// Ellipse outline with center `c`, radii `r` and rotation `angle`
     /// (radians): pixels whose (approximate) distance to the ellipse is
     /// within the stroke radius.

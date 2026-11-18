@@ -61,10 +61,17 @@ impl Draw for Rectangle {
 
     fn rasterize(&self, layer: &mut crate::raster::Layer) {
         let f = self.outline();
+        // filled up to the stroke's centerline, so no seam shows under it
+        if let Some(fill) = self.style.fill {
+            layer.box_fill(f.center, f.half, f.angle, fill);
+        }
         layer.box_outline(f.center, f.half, f.angle, self.style);
     }
 
     fn hit(&self, p: Point, tol: f32) -> bool {
+        if self.style.fill.is_some() && self.frame().contains(p, tol) {
+            return true;
+        }
         let c = self.corners();
         let r = self.style.radius + tol;
         (0..4).any(|i| seg_dist(p, c[i], c[(i + 1) % 4]) <= r)

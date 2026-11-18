@@ -1,6 +1,8 @@
+use slint::Rgba8Pixel;
+
 use crate::{
     raster::Layer,
-    shapes::{Frame, Point, Scale, Shape, points_bounds},
+    shapes::{Frame, Point, Scale, Shape, Style, points_bounds},
 };
 
 /// A reversible change to `Editor::shapes`. Applying one returns the op
@@ -13,6 +15,8 @@ pub enum Op {
     /// Rotate by an angle (radians) about a pivot.
     Rotate(Vec<usize>, Point, f32),
     Scale(Vec<usize>, Scale),
+    /// Give each shape a new style.
+    Restyle(Vec<(usize, Style)>),
 }
 
 /// How a select-tool press combines with the existing selection.
@@ -60,6 +64,11 @@ enum Gesture {
         mode: SelectMode,
         base: Vec<usize>,
         frames: Vec<Frame>,
+    },
+    /// Live-previewing a style change on the selection, which is lifted
+    /// onto `drag_layer`. `originals` holds each selected shape's style before.
+    Restyle {
+        originals: Vec<(usize, Style)>,
     },
 }
 
@@ -191,6 +200,13 @@ impl Editor {
                 }
                 self.rebuild();
                 Op::Scale(idx, s.inverse())
+            }
+            Op::Restyle(mut items) => {
+                for (i, style) in &mut items {
+                    std::mem::swap(self.shapes[*i].style_mut(), style);
+                }
+                self.rebuild();
+                Op::Restyle(items)
             }
         }
     }
@@ -430,7 +446,10 @@ impl Editor {
     pub fn dragging(&self) -> bool {
         matches!(
             self.gesture,
-            Gesture::Move { .. } | Gesture::Rotate { .. } | Gesture::Scale { .. }
+            Gesture::Move { .. }
+                | Gesture::Rotate { .. }
+                | Gesture::Scale { .. }
+                | Gesture::Restyle { .. }
         )
     }
 
@@ -487,6 +506,11 @@ impl Editor {
         let d = self.drag_offset(p);
         match std::mem::replace(&mut self.gesture, Gesture::Idle) {
             Gesture::Idle | Gesture::Marquee { .. } => false,
+            // not a pointer gesture; put it back for end_restyle
+            g @ Gesture::Restyle { .. } => {
+                self.gesture = g;
+                false
+            }
             // drag_layer is left stale: the UI hides it, and press() clears it before reuse
             Gesture::Move { .. } => {
                 match d {
@@ -547,6 +571,83 @@ impl Editor {
         let idx = std::mem::take(&mut self.selected);
         self.record(Op::Remove(idx));
         true
+    }
+
+    /// Applies `f` to each selected shape's style as a live preview: the
+    /// selection is lifted onto `drag_layer` (on the first call) and only that
+    /// is redrawn, so dragging through a color picker stays cheap.
+    /// `end_restyle` records it all as one edit. Returns false when nothing
+    /// is selected or another gesture is running.
+    pub fn restyle_live(&mut self, f: impl Fn(&Shape, &mut Style)) -> bool {
+        if self.selected.is_empty() {
+            return false;
+        }
+        match self.gesture {
+            Gesture::Restyle { .. } => {}
+            Gesture::Idle => {
+                let originals = (self.selected.iter())
+                    .map(|&i| (i, *self.shapes[i].style()))
+                    .collect();
+                self.gesture = Gesture::Restyle { originals };
+                self.lift();
+            }
+            _ => return false,
+        }
+        // a fresh buffer instead of clear(), as in scale_to
+        self.drag_layer = Layer::new(self.drag_layer.buf.width(), self.drag_layer.buf.height());
+        for &i in &self.selected {
+            let shape = &mut self.shapes[i];
+            let mut style = *shape.style();
+            f(shape, &mut style);
+            *shape.style_mut() = style;
+            shape.rasterize(&mut self.drag_layer);
+        }
+        true
+    }
+
+    pub fn restyling(&self) -> bool {
+        matches!(self.gesture, Gesture::Restyle { .. })
+    }
+
+    /// Ends a live restyle, making it one undoable edit (if anything
+    /// changed). Returns whether the layers changed.
+    pub fn end_restyle(&mut self) -> bool {
+        if !self.restyling() {
+            return false;
+        }
+        let Gesture::Restyle { originals } = std::mem::replace(&mut self.gesture, Gesture::Idle)
+        else {
+            unreachable!()
+        };
+        // the shapes already hold the new styles, so the originals are the inverse
+        let inv: Vec<_> = (originals.into_iter())
+            .filter(|(i, st)| self.shapes[*i].style() != st)
+            .collect();
+        if !inv.is_empty() {
+            self.undo.push(Op::Restyle(inv));
+            self.redo.clear();
+        }
+        self.rebuild();
+        true
+    }
+
+    /// Distinct colors the shapes paint with (strokes and fills), most
+    /// recently drawn first, at most `max`.
+    pub fn used_colors(&self, max: usize) -> Vec<Rgba8Pixel> {
+        let mut out = Vec::new();
+        let styles = self.shapes.iter().rev().map(|s| (s.style(), s.fillable()));
+        for (st, fillable) in styles {
+            let fill = st.fill.filter(|_| fillable);
+            for c in std::iter::once(st.color).chain(fill) {
+                if c.a > 0 && !out.contains(&c) {
+                    out.push(c);
+                    if out.len() == max {
+                        return out;
+                    }
+                }
+            }
+        }
+        out
     }
 
     pub fn select_all(&mut self) {

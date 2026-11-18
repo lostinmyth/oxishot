@@ -1,0 +1,312 @@
+import { Styling } from "styling.slint";
+
+// Light/gray squares behind see-through colors.
+export component Checker inherits Rectangle {
+    in property <length> cell: 4px;
+    property <int> cols: ceil(self.width / self.cell);
+    property <int> rows: ceil(self.height / self.cell);
+
+    clip: true;
+    background: #ffffff;
+
+    for i in root.cols * root.rows: Rectangle {
+        property <int> cx: mod(i, root.cols);
+        property <int> cy: floor(i / root.cols);
+        visible: mod(self.cx + self.cy, 2) == 1;
+        x: self.cx * root.cell;
+        y: self.cy * root.cell;
+        width: root.cell;
+        height: root.cell;
+        background: #d4d4d8;
+    }
+}
+
+// A color dot that shows transparency over a checkerboard.
+export component ColorDot inherits Rectangle {
+    in property <color> value;
+    // draws a slash instead when the color is fully transparent
+    in property <bool> none-slash: true;
+
+    border-radius: self.width / 2;
+    clip: true;
+
+    Checker {
+        cell: root.width / 4;
+        visible: root.value.alpha < 255;
+    }
+
+    Rectangle { background: root.value; }
+
+    if root.none-slash && root.value.alpha == 0: Rectangle {
+        background: #27272a;
+        Path {
+            viewbox-width: 16;
+            viewbox-height: 16;
+            commands: "M 4 12 L 12 4";
+            stroke: #ef4444;
+            stroke-width: 1.5px;
+        }
+    }
+
+    Rectangle {
+        border-radius: root.border-radius;
+        border-width: 1px;
+        border-color: #ffffff26;
+    }
+}
+
+// Horizontal track with a round handle at `ratio` (0..1); its children
+// paint the track.
+component Slider inherits Rectangle {
+    in property <float> ratio;
+    in property <color> handle-color;
+    callback picked(float);
+    callback released();
+
+    height: 12px;
+    border-radius: 6px;
+
+    @children
+
+    Rectangle {
+        x: root.ratio * (parent.width - self.width);
+        width: 14px;
+        height: 14px;
+        border-radius: 7px;
+        border-width: 2px;
+        border-color: #ffffff;
+        background: root.handle-color;
+        drop-shadow-blur: 3px;
+        drop-shadow-color: #00000080;
+    }
+
+    ta := TouchArea {
+        function pick() {
+            root.picked(clamp((self.mouse-x - 7px) / (self.width - 14px), 0, 1));
+        }
+        mouse-cursor: pointer;
+        pointer-event(e) => {
+            if e.button == PointerEventButton.left && e.kind == PointerEventKind.down { self.pick(); }
+            if e.button == PointerEventButton.left && e.kind == PointerEventKind.up { root.released(); }
+        }
+        moved => { self.pick(); }
+    }
+}
+
+component Field inherits VerticalLayout {
+    in property <string> label;
+    in-out property <string> text <=> input.text;
+    out property <bool> has-focus: input.has-focus;
+    callback edited();
+    // Enter, or focus moved away
+    callback done();
+
+    spacing: 2px;
+
+    Rectangle {
+        height: 22px;
+        border-radius: 4px;
+        background: #ffffff0d;
+        border-width: 1px;
+        border-color: input.has-focus ? #3b82f6 : #ffffff14;
+
+        input := TextInput {
+            x: 4px;
+            width: parent.width - 8px;
+            single-line: true;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            font-size: 12px;
+            color: #fafafa;
+            selection-background-color: #3b82f680;
+            edited => { root.edited(); }
+            accepted => { root.done(); }
+            changed has-focus => {
+                if !self.has-focus { root.done(); }
+            }
+        }
+    }
+
+    Text {
+        text: root.label;
+        font-size: 10px;
+        color: #71717a;
+        horizontal-alignment: center;
+    }
+}
+
+// HSV square, hue and alpha sliders, and hex/RGBA inputs, like Chrome's.
+// Keeps its own HSV so the hue survives passing through grays.
+export component ColorPicker inherits VerticalLayout {
+    property <float> hue; // degrees
+    property <float> sat;
+    property <float> val;
+    property <float> alpha: 1;
+    out property <color> value: hsv(root.hue, root.sat, root.val, root.alpha);
+
+    // live change (dragging or typing)
+    callback edited(color);
+    // a drag ended or an input was confirmed
+    callback committed();
+
+    public function set-color(c: color) {
+        root.load(c);
+        root.sync-fields();
+    }
+
+    function load(c: color) {
+        let h = c.to-hsv();
+        // grays and black carry no hue; keep the old one
+        if h.saturation > 0 && h.value > 0 { root.hue = h.hue; }
+        if h.value > 0 { root.sat = h.saturation; }
+        root.val = h.value;
+        root.alpha = h.alpha;
+    }
+
+    // refresh the inputs, except the one being typed in
+    function sync-fields() {
+        if !hex.has-focus { hex.text = Styling.to-hex(root.value); }
+        if !r.has-focus { r.text = root.value.red; }
+        if !g.has-focus { g.text = root.value.green; }
+        if !b.has-focus { b.text = root.value.blue; }
+        if !a.has-focus { a.text = round(root.alpha * 100) / 100; }
+    }
+
+    function changed-by-drag() {
+        root.sync-fields();
+        root.edited(root.value);
+    }
+
+    function changed-by-input(c: color) {
+        root.load(c);
+        root.sync-fields();
+        root.edited(root.value);
+    }
+
+    function rgba-typed() {
+        if r.text.is-float() && g.text.is-float() && b.text.is-float() && a.text.is-float() {
+            root.changed-by-input(rgba(
+                clamp(round(r.text.to-float()), 0, 255),
+                clamp(round(g.text.to-float()), 0, 255),
+                clamp(round(b.text.to-float()), 0, 255),
+                clamp(a.text.to-float(), 0, 1)));
+        }
+    }
+
+    function input-done() {
+        root.sync-fields(); // normalize what was typed
+        root.committed();
+    }
+
+    spacing: 10px;
+
+    Rectangle {
+        height: 140px;
+        border-radius: 4px;
+        background: hsv(root.hue, 1, 1);
+
+        Rectangle {
+            border-radius: 4px;
+            background: @linear-gradient(90deg, #ffffff 0%, #ffffff00 100%);
+        }
+
+        Rectangle {
+            border-radius: 4px;
+            background: @linear-gradient(180deg, #00000000 0%, #000000 100%);
+        }
+
+        Rectangle {
+            x: root.sat * parent.width - 7px;
+            y: (1 - root.val) * parent.height - 7px;
+            width: 14px;
+            height: 14px;
+            border-radius: 7px;
+            border-width: 2px;
+            border-color: #ffffff;
+            background: hsv(root.hue, root.sat, root.val);
+            drop-shadow-blur: 3px;
+            drop-shadow-color: #00000080;
+        }
+
+        TouchArea {
+            function pick() {
+                root.sat = clamp(self.mouse-x / self.width, 0, 1);
+                root.val = clamp(1 - self.mouse-y / self.height, 0, 1);
+                root.changed-by-drag();
+            }
+            mouse-cursor: crosshair;
+            pointer-event(e) => {
+                if e.button == PointerEventButton.left && e.kind == PointerEventKind.down { self.pick(); }
+                if e.button == PointerEventButton.left && e.kind == PointerEventKind.up { root.committed(); }
+            }
+            moved => { self.pick(); }
+        }
+    }
+
+    Slider {
+        ratio: root.hue / 360;
+        handle-color: hsv(root.hue, 1, 1);
+        background: @linear-gradient(90deg, #ff0000 0%, #ffff00 16.67%, #00ff00 33.33%, #00ffff 50%, #0000ff 66.67%, #ff00ff 83.33%, #ff0000 100%);
+        picked(t) => {
+            root.hue = t * 360;
+            root.changed-by-drag();
+        }
+        released => { root.committed(); }
+    }
+
+    Slider {
+        ratio: root.alpha;
+        handle-color: root.value;
+        Checker {
+            cell: 6px;
+            border-radius: 6px;
+        }
+        Rectangle {
+            border-radius: 6px;
+            background: @linear-gradient(90deg, hsv(root.hue, root.sat, root.val, 0) 0%, hsv(root.hue, root.sat, root.val, 1) 100%);
+        }
+        picked(t) => {
+            root.alpha = t;
+            root.changed-by-drag();
+        }
+        released => { root.committed(); }
+    }
+
+    HorizontalLayout {
+        spacing: 4px;
+
+        hex := Field {
+            label: "Hex";
+            horizontal-stretch: 2.4;
+            edited => {
+                let p = Styling.parse-hex(self.text);
+                if p.ok { root.changed-by-input(p.color); }
+            }
+            done => { root.input-done(); }
+        }
+        r := Field {
+            label: "R";
+            horizontal-stretch: 1;
+            edited => { root.rgba-typed(); }
+            done => { root.input-done(); }
+        }
+        g := Field {
+            label: "G";
+            horizontal-stretch: 1;
+            edited => { root.rgba-typed(); }
+            done => { root.input-done(); }
+        }
+        b := Field {
+            label: "B";
+            horizontal-stretch: 1;
+            edited => { root.rgba-typed(); }
+            done => { root.input-done(); }
+        }
+        a := Field {
+            label: "A";
+            horizontal-stretch: 1;
+            edited => { root.rgba-typed(); }
+            done => { root.input-done(); }
+        }
+    }
+}
