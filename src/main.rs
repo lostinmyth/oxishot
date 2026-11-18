@@ -74,8 +74,10 @@ fn push_selection(win: &slint::Weak<MainWindow>, ed: &Editor) {
     }
     c.set_dragging(ed.dragging());
     c.set_rotating(ed.rotating());
-    // the corners may have moved; the next hover recomputes this
+    c.set_scaling(ed.scaling());
+    // the corners may have moved; the next hover recomputes these
     c.set_rotate_hover(false);
+    c.set_scale_hover(false);
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -205,6 +207,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 push_selection(&win.as_weak(), ed); // boxes turn with the shapes
                 return;
             }
+            if ed.scale_to((x, y)) {
+                let c = win.global::<Canvas>();
+                c.set_drag_overlay(slint::Image::from_rgba8(ed.drag_layer.buf.clone()));
+                push_selection(&win.as_weak(), ed); // boxes stretch with the shapes
+                return;
+            }
             if ed.marquee_to((x, y)) {
                 push_selection(&win.as_weak(), ed);
                 return;
@@ -244,7 +252,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         move |x, y| {
             let Some(w) = win.upgrade() else { return };
             let c = w.global::<Canvas>();
-            let zone = ed.borrow().rotate_zone((x, y));
+            let ed = ed.borrow();
+            let handle = ed.scale_handle((x, y));
+            c.set_scale_hover(handle.is_some());
+            if let Some(a) = handle {
+                c.set_scale_cursor(a.to_degrees());
+            }
+            let zone = ed.rotate_zone((x, y));
             c.set_rotate_hover(zone.is_some());
             if let Some(a) = zone {
                 c.set_rotate_cursor(a.to_degrees());

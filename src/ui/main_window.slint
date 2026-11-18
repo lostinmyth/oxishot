@@ -63,7 +63,8 @@ export component MainWindow inherits Window {
     }
 
     // the 3 here must match SEL_PAD in editor.rs (clicks inside this box hit the shape)
-    // each box turns with its shape; the corner squares mark where rotating starts
+    // each box turns with its shape; the corner squares are scale handles,
+    // and just outside them is where rotating starts
     for b in Canvas.selection: Rectangle {
         x: (b.x + (Canvas.dragging ? Canvas.drag-offset.x : 0) - 3) * 1phx;
         y: (b.y + (Canvas.dragging ? Canvas.drag-offset.y : 0) - 3) * 1phx;
@@ -109,9 +110,10 @@ export component MainWindow inherits Window {
 
     touch := TouchArea {
         enabled: Actions.current-tool == Action.select || Actions.current-tool == Action.brush || Actions.current-tool == Action.text || Actions.current-tool == Action.rectangle || Actions.current-tool == Action.circle || Actions.current-tool == Action.arrow;
-        // there's no system rotate cursor; the icon below stands in for it
+        // system resize cursors only come in fixed diagonals and theme sizes;
+        // the icons below stand in for them, matching rotated boxes
         mouse-cursor: Actions.current-tool == Action.text ? MouseCursor.text
-            : Actions.current-tool == Action.select ? (Canvas.rotate-hover || Canvas.rotating ? MouseCursor.none
+            : Actions.current-tool == Action.select ? (Canvas.scale-hover || Canvas.scaling || Canvas.rotate-hover || Canvas.rotating ? MouseCursor.none
                 : Canvas.dragging ? MouseCursor.grabbing : MouseCursor.default)
             : MouseCursor.crosshair;
         pointer-event(e) => {
@@ -152,6 +154,16 @@ export component MainWindow inherits Window {
         // the icon's arc hugs a top-left corner; turn it to the grabbed one
         // and keep turning it with the shapes while rotating
         transform-rotation: (Canvas.rotate-cursor + (Canvas.rotating ? Canvas.drag-angle / 1deg : 0)) * 1deg;
+    }
+
+    if Actions.current-tool == Action.select && touch.has-hover && (Canvas.scale-hover || Canvas.scaling): Image {
+        x: touch.mouse-x - 10px;
+        y: touch.mouse-y - 10px;
+        width: 20px;
+        height: 20px;
+        source: @image-url("../assets/icons/scale.svg");
+        // the icon runs along a top-left corner's bisector; turn it to the grabbed corner
+        transform-rotation: Canvas.scale-cursor * 1deg;
     }
 
     // declared after the TouchArea so it sits on top and gets clicks for the caret

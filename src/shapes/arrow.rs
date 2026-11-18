@@ -1,6 +1,7 @@
-use crate::shapes::{Draw, Frame, Point, Style, offset, points_bounds, rotated, seg_dist};
+use crate::shapes::{Draw, Frame, Point, Scale, Style, offset, points_bounds, rotated, seg_dist};
 use std::fmt::Write;
 
+#[derive(Clone)]
 pub struct Arrow {
     pub a: Point, // tail (drag start)
     pub b: Point, // tip (current/final point)
@@ -84,5 +85,10 @@ impl Draw for Arrow {
         let sc = angle.sin_cos();
         self.a = rotated(self.a, c, sc);
         self.b = rotated(self.b, c, sc);
+    }
+
+    fn scale(&mut self, s: &Scale) {
+        self.a = s.apply(self.a);
+        self.b = s.apply(self.b);
     }
 }

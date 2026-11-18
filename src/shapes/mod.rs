@@ -32,6 +32,9 @@ pub trait Draw {
     fn translate(&mut self, d: Point);
     /// Rotates the shape by `angle` radians (clockwise on screen) about `c`.
     fn rotate(&mut self, c: Point, angle: f32);
+    /// Applies `s`. Uneven factors must run along the shape's own frame
+    /// axes (`frame().angle`); any other scale has to be uniform.
+    fn scale(&mut self, s: &Scale);
 }
 
 /// Distance from `p` to the segment `a`-`b`.
@@ -69,6 +72,53 @@ pub fn points_bounds(pts: impl IntoIterator<Item = Point>, pad: f32) -> (Point, 
         },
     );
     ((lo.0 - pad, lo.1 - pad), (hi.0 + pad, hi.1 + pad))
+}
+
+/// A stretch by `factors` along axes turned `angle` radians, about `anchor`.
+#[derive(Clone, Copy)]
+pub struct Scale {
+    pub anchor: Point,
+    pub angle: f32,
+    pub factors: Point,
+}
+
+impl Scale {
+    /// `p` relative to the anchor, measured along the scale's axes.
+    pub fn local(&self, p: Point) -> Point {
+        rotated(
+            (p.0 - self.anchor.0, p.1 - self.anchor.1),
+            (0.0, 0.0),
+            (-self.angle).sin_cos(),
+        )
+    }
+
+    pub fn apply(&self, p: Point) -> Point {
+        let (u, v) = self.local(p);
+        let (x, y) = rotated(
+            (u * self.factors.0, v * self.factors.1),
+            (0.0, 0.0),
+            self.angle.sin_cos(),
+        );
+        (self.anchor.0 + x, self.anchor.1 + y)
+    }
+
+    pub fn inverse(&self) -> Self {
+        Self {
+            factors: (1.0 / self.factors.0, 1.0 / self.factors.1),
+            ..*self
+        }
+    }
+}
+
+/// Scales the box spanned by corners `a` and `b` (stored unrotated about
+/// their midpoint): the midpoint moves with `s`, the corners stretch around it.
+pub fn scale_box(a: &mut Point, b: &mut Point, s: &Scale) {
+    let c = ((a.0 + b.0) * 0.5, (a.1 + b.1) * 0.5);
+    let n = s.apply(c);
+    let (fx, fy) = s.factors;
+    for q in [a, b] {
+        *q = (n.0 + (q.0 - c.0) * fx, n.1 + (q.1 - c.1) * fy);
+    }
 }
 
 /// A box with center `center`, half-size `half`, rotated by `angle` radians
@@ -124,6 +174,15 @@ impl Frame {
         points_bounds(self.corners(0.0), 0.0)
     }
 
+    /// The frame after scaling its owner by `s` (same axis rule as `Draw::scale`).
+    pub fn scaled(&self, s: &Scale) -> Self {
+        Self {
+            center: s.apply(self.center),
+            half: (self.half.0 * s.factors.0, self.half.1 * s.factors.1),
+            angle: self.angle,
+        }
+    }
+
     /// The frame after rotating its owner by `angle` about `c`.
     pub fn rotated_about(&self, c: Point, angle: f32) -> Self {
         Self {
@@ -134,6 +193,7 @@ impl Frame {
     }
 }
 
+#[derive(Clone)]
 pub enum Shape {
     Stroke(Stroke),
     Rectangle(Rectangle),
@@ -189,5 +249,9 @@ impl Shape {
 
     pub fn rotate(&mut self, c: Point, angle: f32) {
         self.inner_mut().rotate(c, angle);
+    }
+
+    pub fn scale(&mut self, s: &Scale) {
+        self.inner_mut().scale(s);
     }
 }

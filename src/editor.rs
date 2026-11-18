@@ -1,6 +1,6 @@
 use crate::{
     raster::Layer,
-    shapes::{Frame, Point, Shape, points_bounds},
+    shapes::{Frame, Point, Scale, Shape, points_bounds},
 };
 
 /// A reversible change to `Editor::shapes`. Applying one returns the op
@@ -12,6 +12,7 @@ pub enum Op {
     Move(Vec<usize>, Point),
     /// Rotate by an angle (radians) about a pivot.
     Rotate(Vec<usize>, Point, f32),
+    Scale(Vec<usize>, Scale),
 }
 
 /// How a select-tool press combines with the existing selection.
@@ -40,6 +41,17 @@ enum Gesture {
         angle: f32,
         frames: Vec<Frame>,
     },
+    /// Scaling the selected shapes by a corner handle; they're lifted onto
+    /// `drag_layer`, which is re-rasterized as the pointer moves (stroke
+    /// widths stay put, so a stretched bitmap wouldn't match the result).
+    /// `grab` is the grabbed corner in `scale.local` coordinates; `frames`
+    /// holds the selected shapes' frames at the start.
+    Scale {
+        scale: Scale,
+        grab: Point,
+        uniform: bool,
+        frames: Vec<Frame>,
+    },
     /// Rubber-band selection. `base` is the selection before it started and
     /// `frames` caches every shape's frame so moving the box stays cheap.
     Marquee {
@@ -58,6 +70,11 @@ const HIT_TOL: f32 = 4.0;
 pub const SEL_PAD: f32 = 3.0;
 /// How far (px) outside a selection box's corner still grabs it for rotating.
 const ROTATE_REACH: f32 = 14.0;
+/// How close (px) to a selection box's corner grabs its scale handle.
+/// Checked before rotating, so it wins where the two overlap.
+const SCALE_REACH: f32 = 6.0;
+/// Scaling never shrinks a selection box below this (px) along an axis.
+const SCALE_MIN: f32 = 4.0;
 /// A marquee smaller than this (px, both axes) is treated as a click and selects nothing.
 const MARQUEE_MIN: f32 = 3.0;
 
@@ -168,6 +185,13 @@ impl Editor {
                 self.rebuild();
                 Op::Rotate(idx, pivot, -angle)
             }
+            Op::Scale(idx, s) => {
+                for &i in &idx {
+                    self.shapes[i].scale(&s);
+                }
+                self.rebuild();
+                Op::Scale(idx, s.inverse())
+            }
         }
     }
 
@@ -202,6 +226,30 @@ impl Editor {
     /// Select-tool press at `p`. Returns whether the layers changed
     /// (a drag started, so shapes were lifted onto `drag_layer`).
     pub fn press(&mut self, p: Point, mode: SelectMode) -> bool {
+        if let Some((j, k)) = self.scale_zone(p) {
+            let frames = self.selection_frames();
+            let f = frames[j];
+            let c = f.corners(0.0);
+            // the opposite corner stays put
+            let scale = Scale {
+                anchor: c[(k + 2) % 4],
+                angle: f.angle,
+                factors: (1.0, 1.0),
+            };
+            // shapes turned differently can only share a uniform scale, and
+            // text can't stretch; shift (the add modifier) keeps the aspect too
+            let uniform = mode == SelectMode::Add
+                || frames.len() > 1
+                || matches!(self.shapes[self.selected[j]], Shape::Text(_));
+            self.gesture = Gesture::Scale {
+                grab: scale.local(c[k]),
+                scale,
+                uniform,
+                frames,
+            };
+            self.lift();
+            return true;
+        }
         if self.rotate_zone(p).is_some() {
             let frames = self.selection_frames();
             let ((x0, y0), (x1, y1)) =
@@ -269,11 +317,33 @@ impl Editor {
         }
     }
 
+    /// (selection index, corner index) of the scale handle under `p`.
+    fn scale_zone(&self, p: Point) -> Option<(usize, usize)> {
+        if !matches!(self.gesture, Gesture::Idle) {
+            return None;
+        }
+        self.selection_frames()
+            .iter()
+            .enumerate()
+            .find_map(|(j, f)| {
+                let k = (f.corners(SEL_PAD).iter()).position(|&c| dist(p, c) <= SCALE_REACH)?;
+                Some((j, k))
+            })
+    }
+
+    /// If `p` is on a selected shape's corner handle, where a press starts
+    /// scaling, returns which way that corner faces: radians clockwise from
+    /// the top-left corner.
+    pub fn scale_handle(&self, p: Point) -> Option<f32> {
+        let (j, k) = self.scale_zone(p)?;
+        Some(self.selection_frames()[j].angle + k as f32 * std::f32::consts::FRAC_PI_2)
+    }
+
     /// If `p` is just outside a corner of a selected shape's box, where a
     /// press starts rotating the selection about its center, returns which
     /// way that corner faces: radians clockwise from the top-left corner.
     pub fn rotate_zone(&self, p: Point) -> Option<f32> {
-        if !matches!(self.gesture, Gesture::Idle) {
+        if !matches!(self.gesture, Gesture::Idle) || self.scale_zone(p).is_some() {
             return None;
         }
         self.selection_frames().iter().find_map(|f| {
@@ -306,6 +376,48 @@ impl Editor {
         matches!(self.gesture, Gesture::Rotate { .. })
     }
 
+    /// Updates an active scale for the pointer at `p` and redraws
+    /// `drag_layer`. Returns false when not scaling.
+    pub fn scale_to(&mut self, p: Point) -> bool {
+        let Gesture::Scale {
+            scale,
+            grab: g,
+            uniform,
+            ..
+        } = &mut self.gesture
+        else {
+            return false;
+        };
+        let v = scale.local(p);
+        scale.factors = if *uniform {
+            // project the pointer onto the anchor-to-corner diagonal
+            let g2 = g.0 * g.0 + g.1 * g.1;
+            let s = if g2 < 1e-6 {
+                1.0
+            } else {
+                ((v.0 * g.0 + v.1 * g.1) / g2).max(SCALE_MIN / g2.sqrt())
+            };
+            (s, s)
+        } else {
+            (axis_factor(v.0, g.0), axis_factor(v.1, g.1))
+        };
+        let s = *scale;
+
+        // a fresh buffer instead of clear(): the UI still holds the old one,
+        // so clearing would first copy it just to overwrite it
+        self.drag_layer = Layer::new(self.drag_layer.buf.width(), self.drag_layer.buf.height());
+        for &i in &self.selected {
+            let mut shape = self.shapes[i].clone();
+            shape.scale(&s);
+            shape.rasterize(&mut self.drag_layer);
+        }
+        true
+    }
+
+    pub fn scaling(&self) -> bool {
+        matches!(self.gesture, Gesture::Scale { .. })
+    }
+
     /// Offset of the drag in progress, if any.
     pub fn drag_offset(&self, p: Point) -> Option<Point> {
         match self.gesture {
@@ -314,9 +426,12 @@ impl Editor {
         }
     }
 
-    /// Whether the selection is lifted onto `drag_layer` (moving or rotating).
+    /// Whether the selection is lifted onto `drag_layer` (moving, rotating or scaling).
     pub fn dragging(&self) -> bool {
-        matches!(self.gesture, Gesture::Move { .. } | Gesture::Rotate { .. })
+        matches!(
+            self.gesture,
+            Gesture::Move { .. } | Gesture::Rotate { .. } | Gesture::Scale { .. }
+        )
     }
 
     /// The marquee rectangle, if one is being drawn.
@@ -389,11 +504,19 @@ impl Editor {
                 }
                 true
             }
+            Gesture::Scale { scale, .. } => {
+                if scale.factors != (1.0, 1.0) {
+                    self.record(Op::Scale(self.selected.clone(), scale));
+                } else {
+                    self.rebuild();
+                }
+                true
+            }
         }
     }
 
     /// Frame of each selected shape. Uses the gesture's cache while a
-    /// marquee or rotation is active (turned by the rotation so far).
+    /// marquee, rotation or scale is active (transformed by it so far).
     pub fn selection_frames(&self) -> Vec<Frame> {
         match &self.gesture {
             Gesture::Marquee { frames, .. } => self.selected.iter().map(|&i| frames[i]).collect(),
@@ -406,6 +529,9 @@ impl Editor {
                 .iter()
                 .map(|f| f.rotated_about(*pivot, *angle))
                 .collect(),
+            Gesture::Scale { scale, frames, .. } => {
+                frames.iter().map(|f| f.scaled(scale)).collect()
+            }
             _ => self
                 .selected
                 .iter()
@@ -432,6 +558,15 @@ impl Editor {
         self.selected.clear();
         had
     }
+}
+
+/// Scale factor along one axis that brings the grabbed corner (`g` from the
+/// anchor) to the pointer (`v`), never flipping or shrinking below `SCALE_MIN`.
+fn axis_factor(v: f32, g: f32) -> f32 {
+    if g.abs() < 1e-3 {
+        return 1.0;
+    }
+    (v / g).max(SCALE_MIN / g.abs())
 }
 
 fn dist(a: Point, b: Point) -> f32 {

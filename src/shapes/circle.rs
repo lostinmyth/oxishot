@@ -1,7 +1,8 @@
-use crate::shapes::{Draw, Frame, Point, Style, offset, rotated, seg_dist};
+use crate::shapes::{Draw, Frame, Point, Scale, Style, offset, rotated, scale_box, seg_dist};
 use std::fmt::Write;
 
 /// Ellipse inscribed in the rectangle spanned by `a` and `b`, rotated by `angle`.
+#[derive(Clone)]
 pub struct Circle {
     pub a: Point, // corner where the drag started (before rotation)
     pub b: Point, // current/final corner (before rotation)
@@ -93,5 +94,9 @@ impl Draw for Circle {
         let new = rotated(old, c, angle.sin_cos());
         self.translate((new.0 - old.0, new.1 - old.1));
         self.angle += angle;
+    }
+
+    fn scale(&mut self, s: &Scale) {
+        scale_box(&mut self.a, &mut self.b, s);
     }
 }

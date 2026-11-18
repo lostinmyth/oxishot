@@ -1,7 +1,8 @@
 use std::fmt::Write;
 
-use crate::shapes::{Draw, Frame, Point, Style, offset, rotated, seg_dist};
+use crate::shapes::{Draw, Frame, Point, Scale, Style, offset, rotated, seg_dist};
 
+#[derive(Clone)]
 pub struct Stroke {
     pub points: Vec<(f32, f32)>,
     /// Total rotation applied so far (radians). The points already include it;
@@ -77,5 +78,11 @@ impl Draw for Stroke {
             *q = rotated(*q, c, sc);
         }
         self.angle += angle;
+    }
+
+    fn scale(&mut self, s: &Scale) {
+        for q in &mut self.points {
+            *q = s.apply(*q);
+        }
     }
 }

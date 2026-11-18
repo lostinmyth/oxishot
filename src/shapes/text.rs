@@ -7,7 +7,7 @@ use fontdue::{
 
 use crate::{
     raster::Layer,
-    shapes::{Draw, Frame, Point, Style, offset, rotated},
+    shapes::{Draw, Frame, Point, Scale, Style, offset, rotated},
 };
 
 /// Same file the Slint preview imports, so the committed raster matches it.
@@ -19,6 +19,7 @@ pub static FONT: LazyLock<Font> = LazyLock::new(|| {
     .expect("bundled font is valid")
 });
 
+#[derive(Clone)]
 pub struct Text {
     pub pos: Point, // top-left of the line box (the TextInput's x/y)
     pub text: String,
@@ -76,6 +77,13 @@ impl Draw for Text {
     fn rotate(&mut self, c: Point, angle: f32) {
         self.pos = rotated(self.pos, c, angle.sin_cos());
         self.angle += angle;
+    }
+
+    // glyphs can't stretch, so text only scales uniformly (the editor
+    // ensures that); the mean keeps this sane if it's ever called otherwise
+    fn scale(&mut self, s: &Scale) {
+        self.pos = s.apply(self.pos);
+        self.size *= (s.factors.0 * s.factors.1).sqrt();
     }
 }
 

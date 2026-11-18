@@ -18,10 +18,12 @@ export global Canvas {
 
     // select tool: the lifted shape is drawn alone in drag-overlay and
     // shifted by drag-offset (or turned by drag-angle about drag-pivot),
-    // so dragging never re-rasterizes anything
+    // so moving and rotating never re-rasterize anything; scaling redraws
+    // drag-overlay itself
     in property <image> drag-overlay;
     in property <bool> dragging;
     in property <bool> rotating;
+    in property <bool> scaling;
     in property <Vec2> drag-offset;
     in property <Vec2> drag-pivot;
     in property <angle> drag-angle;
@@ -29,6 +31,11 @@ export global Canvas {
     in property <bool> rotate-hover;
     // which way the hovered corner faces (degrees, 0 = top-left), for the rotate icon
     in property <float> rotate-cursor;
+    // the pointer is on a selected shape's corner handle, where a press scales
+    in property <bool> scale-hover;
+    // which way that corner faces (degrees, 0 = top-left), for the scale icon;
+    // kept while scaling, which never turns the boxes
+    in property <float> scale-cursor;
     in property <[SelectionBox]> selection;
     in property <bool> has-marquee;
     in property <SelectionBox> marquee;
