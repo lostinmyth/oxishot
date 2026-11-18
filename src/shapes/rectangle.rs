@@ -1,4 +1,6 @@
-use crate::shapes::{Draw, Frame, Point, Scale, Style, offset, rotated, scale_box, seg_dist};
+use crate::shapes::{
+    Draw, Frame, Point, Scale, Style, offset, rotated, scale_box, seg_dist, snap_outline,
+};
 use std::fmt::Write;
 
 #[derive(Clone)]
@@ -30,12 +32,23 @@ impl Rectangle {
         let (c, sc) = (self.center(), self.angle.sin_cos());
         [(x0, y0), (x1, y0), (x1, y1), (x0, y1)].map(|p| rotated(p, c, sc))
     }
+
+    /// The stroke's centerline as drawn: pixel-snapped when axis-aligned.
+    fn outline(&self) -> Frame {
+        let ((x0, y0), (x1, y1)) = (self.a, self.b);
+        let f = Frame {
+            center: self.center(),
+            half: ((x1 - x0).abs() * 0.5, (y1 - y0).abs() * 0.5),
+            angle: self.angle,
+        };
+        snap_outline(f, self.style.radius)
+    }
 }
 
 impl Draw for Rectangle {
     fn write_preview(&self, out: &mut String) {
         out.clear();
-        let [(x0, y0), (x1, y1), (x2, y2), (x3, y3)] = self.corners();
+        let [(x0, y0), (x1, y1), (x2, y2), (x3, y3)] = self.outline().corners(0.0);
         let _ = write!(out, "M {x0} {y0} L {x1} {y1} L {x2} {y2} L {x3} {y3} Z");
     }
 
@@ -47,10 +60,8 @@ impl Draw for Rectangle {
     }
 
     fn rasterize(&self, layer: &mut crate::raster::Layer) {
-        let c = self.corners();
-        for i in 0..4 {
-            layer.capsule(c[i], c[(i + 1) % 4], self.style);
-        }
+        let f = self.outline();
+        layer.box_outline(f.center, f.half, f.angle, self.style);
     }
 
     fn hit(&self, p: Point, tol: f32) -> bool {

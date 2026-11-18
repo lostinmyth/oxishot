@@ -1,4 +1,6 @@
-use crate::shapes::{Draw, Frame, Point, Scale, Style, offset, points_bounds, rotated, seg_dist};
+use crate::shapes::{
+    Draw, Frame, Point, Scale, Style, offset, points_bounds, rotated, seg_dist, snap_point,
+};
 use std::fmt::Write;
 
 #[derive(Clone)]
@@ -32,14 +34,26 @@ impl Arrow {
         let w2 = (x1 - h * (ux * c + uy * s), y1 - h * (uy * c - ux * s));
         Some((w1, w2))
     }
+
+    /// The arrow as drawn: ends pixel-snapped, so level or upright shafts
+    /// land on whole pixel rows/columns instead of straddling two.
+    fn snapped(&self) -> Self {
+        let r = self.style.radius;
+        Self {
+            a: snap_point(self.a, r),
+            b: snap_point(self.b, r),
+            style: self.style,
+        }
+    }
 }
 
 impl Draw for Arrow {
     fn write_preview(&self, out: &mut String) {
         out.clear();
-        let ((x0, y0), (x1, y1)) = (self.a, self.b);
+        let s = self.snapped();
+        let ((x0, y0), (x1, y1)) = (s.a, s.b);
         let _ = write!(out, "M {x0} {y0} L {x1} {y1}");
-        if let Some(((wx1, wy1), (wx2, wy2))) = self.wings() {
+        if let Some(((wx1, wy1), (wx2, wy2))) = s.wings() {
             // one subpath: wing -> tip -> wing (gives a clean join at the tip)
             let _ = write!(out, " M {wx1} {wy1} L {x1} {y1} L {wx2} {wy2}");
         }
@@ -52,10 +66,11 @@ impl Draw for Arrow {
     }
 
     fn rasterize(&self, layer: &mut crate::raster::Layer) {
-        layer.capsule(self.a, self.b, self.style);
-        if let Some((w1, w2)) = self.wings() {
-            layer.capsule(w1, self.b, self.style);
-            layer.capsule(w2, self.b, self.style);
+        let s = self.snapped();
+        layer.capsule(s.a, s.b, s.style);
+        if let Some((w1, w2)) = s.wings() {
+            layer.capsule(w1, s.b, s.style);
+            layer.capsule(w2, s.b, s.style);
         }
     }
 

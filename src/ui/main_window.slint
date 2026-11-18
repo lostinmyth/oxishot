@@ -106,6 +106,8 @@ export component MainWindow inherits Window {
         stroke: Canvas.brush-color;
         stroke-width: Canvas.brush-radius * 2 * 1phx;
         stroke-line-cap: round;
+        // rectangles get square corners, matching Layer::box_outline
+        stroke-line-join: Actions.current-tool == Action.rectangle ? LineJoin.miter : LineJoin.round;
     }
 
     touch := TouchArea {

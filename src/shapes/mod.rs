@@ -74,6 +74,36 @@ pub fn points_bounds(pts: impl IntoIterator<Item = Point>, pad: f32) -> (Point, 
     ((lo.0 - pad, lo.1 - pad), (hi.0 + pad, hi.1 + pad))
 }
 
+/// If `angle` is a whole number of quarter turns, whether that number is odd.
+pub fn quarter_turns(angle: f32) -> Option<bool> {
+    let q = angle / std::f32::consts::FRAC_PI_2;
+    let n = q.round();
+    ((q - n).abs() < 1e-4).then(|| n.rem_euclid(2.0) == 1.0)
+}
+
+/// `p` moved by under half a pixel so a stroke of half-width `r` centered on
+/// it starts on a pixel boundary (pointer positions are fractional, and a
+/// line between pixels smears into two half-covered rows).
+pub fn snap_point(p: Point, r: f32) -> Point {
+    ((p.0 - r).round() + r, (p.1 - r).round() + r)
+}
+
+/// An outline (center, half-size, angle) stroked with half-width `r`: if it's
+/// axis-aligned, re-expressed unrotated with its outer stroke edges moved
+/// onto pixel boundaries so straight sides come out fully crisp.
+pub fn snap_outline(f: Frame, r: f32) -> Frame {
+    let Some(odd) = quarter_turns(f.angle) else {
+        return f;
+    };
+    // a half turn maps the box onto itself; a quarter turn swaps its sides
+    let (hx, hy) = if odd { (f.half.1, f.half.0) } else { f.half };
+    let lo = |v: f32| (v - r).round() + r;
+    let hi = |v: f32, l: f32| ((v + r).round() - r).max(l);
+    let (x0, y0) = (lo(f.center.0 - hx), lo(f.center.1 - hy));
+    let (x1, y1) = (hi(f.center.0 + hx, x0), hi(f.center.1 + hy, y0));
+    Frame::aligned(((x0, y0), (x1, y1)))
+}
+
 /// A stretch by `factors` along axes turned `angle` radians, about `anchor`.
 #[derive(Clone, Copy)]
 pub struct Scale {

@@ -1,6 +1,6 @@
 use slint::{Rgba8Pixel, SharedPixelBuffer};
 
-use crate::shapes::{Style, points_bounds};
+use crate::shapes::{Frame, Style, points_bounds};
 
 pub struct Layer {
     pub buf: SharedPixelBuffer<Rgba8Pixel>,
@@ -127,6 +127,44 @@ impl Layer {
                 let c = top * (1.0 - tv) + bot * tv;
                 if c > 0.0 {
                     blend_over(&mut px[row + pxi as usize], color, c / 255.0);
+                }
+            }
+        }
+    }
+
+    /// Rectangle outline with center `c`, half-size `half` and rotation
+    /// `angle` (radians): the band between the box grown and shrunk by the
+    /// stroke radius, so corners stay square instead of rounding off.
+    pub fn box_outline(&mut self, c: (f32, f32), half: (f32, f32), angle: f32, style: Style) {
+        let r = style.radius;
+        let color = style.color;
+        let outer = (half.0 + r, half.1 + r);
+        let inner = (half.0 - r, half.1 - r);
+        let (s, k) = angle.sin_cos();
+
+        let ((bx0, by0), (bx1, by1)) = Frame { center: c, half: outer, angle }.aabb();
+        let (w, h) = (self.buf.width() as i32, self.buf.height() as i32);
+        let x0 = ((bx0 - 1.0).floor() as i32).max(0);
+        let y0 = ((by0 - 1.0).floor() as i32).max(0);
+        let x1 = ((bx1 + 1.0).ceil() as i32).min(w);
+        let y1 = ((by1 + 1.0).ceil() as i32).min(h);
+
+        // how much of the pixel span [x - 0.5, x + 0.5] lies in [-h, h]
+        let span = |x: f32, h: f32| (f32::min(x + 0.5, h) - f32::max(x - 0.5, -h)).max(0.0);
+        let px = self.buf.make_mut_slice();
+
+        for y in y0..y1 {
+            let row = (y * w) as usize;
+            for x in x0..x1 {
+                let (dx, dy) = (x as f32 + 0.5 - c.0, y as f32 + 0.5 - c.1);
+                // into the box's own frame (rotate by -angle)
+                let (fx, fy) = (dx * k + dy * s, dy * k - dx * s);
+                // pixel area inside the outer box minus inside the inner one;
+                // per-axis overlap is exact while the box is axis-aligned
+                let cov = span(fx, outer.0) * span(fy, outer.1)
+                    - span(fx, inner.0) * span(fy, inner.1);
+                if cov > 0.0 {
+                    blend_over(&mut px[row + x as usize], color, cov.min(1.0));
                 }
             }
         }

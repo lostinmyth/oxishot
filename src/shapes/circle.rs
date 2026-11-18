@@ -1,4 +1,6 @@
-use crate::shapes::{Draw, Frame, Point, Scale, Style, offset, rotated, scale_box, seg_dist};
+use crate::shapes::{
+    Draw, Frame, Point, Scale, Style, offset, rotated, scale_box, seg_dist, snap_outline,
+};
 use std::fmt::Write;
 
 /// Ellipse inscribed in the rectangle spanned by `a` and `b`, rotated by `angle`.
@@ -28,14 +30,25 @@ impl Circle {
         let r = ((x1 - x0).abs() * 0.5, (y1 - y0).abs() * 0.5);
         (c, r)
     }
+
+    /// (center, radii, angle) as drawn: pixel-snapped when axis-aligned.
+    fn outline(&self) -> Frame {
+        let (center, half) = self.geometry();
+        let f = Frame { center, half, angle: self.angle };
+        snap_outline(f, self.style.radius)
+    }
 }
 
 impl Draw for Circle {
     fn write_preview(&self, out: &mut String) {
         out.clear();
-        let ((cx, cy), (rx, ry)) = self.geometry();
-        let deg = self.angle.to_degrees();
-        let (s, k) = self.angle.sin_cos();
+        let Frame {
+            center: (cx, cy),
+            half: (rx, ry),
+            angle,
+        } = self.outline();
+        let deg = angle.to_degrees();
+        let (s, k) = angle.sin_cos();
         // two half-ellipse arcs; a single full arc is degenerate in SVG
         let (lx, ly, rx_, ry_) = (cx - rx * k, cy - rx * s, cx + rx * k, cy + rx * s);
         let _ = write!(
@@ -51,8 +64,8 @@ impl Draw for Circle {
     }
 
     fn rasterize(&self, layer: &mut crate::raster::Layer) {
-        let (c, r) = self.geometry();
-        layer.ellipse(c, r, self.angle, self.style);
+        let f = self.outline();
+        layer.ellipse(f.center, f.half, f.angle, self.style);
     }
 
     fn hit(&self, p: Point, tol: f32) -> bool {
