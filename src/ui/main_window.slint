@@ -22,7 +22,8 @@ export component MainWindow inherits Window {
     property <Action> tool: Actions.current-tool;
     changed tool => {
         root.commit-text();
-        if root.tool != Action.select { Actions.dispatch(Action.deselect); }
+        // the eyedropper keeps the selection: it recolors it
+        if root.tool != Action.select && root.tool != Action.eyedropper { Actions.dispatch(Action.deselect); }
     }
 
     function commit-text() {
@@ -60,9 +61,13 @@ export component MainWindow inherits Window {
     }
 
     // eyedropper tool: the color under (x, y) becomes the stroke color
+    // (and of the selection, live; the release commits it as one undo step)
     function eyedrop(x: length, y: length) {
         let p = Canvas.sample(x / 1phx, y / 1phx);
-        if p.ok { Styling.stroke = p.color; }
+        if p.ok {
+            Styling.stroke = p.color;
+            Styling.preview(StyleField.stroke);
+        }
     }
 
     function cancel-text() {
@@ -196,7 +201,10 @@ export component MainWindow inherits Window {
                         }
                     } else if Actions.current-tool == Action.eyedropper {
                         if e.kind == PointerEventKind.down { root.eyedrop(self.mouse-x, self.mouse-y); }
-                        if e.kind == PointerEventKind.up { Actions.current-tool = Action.select; }
+                        if e.kind == PointerEventKind.up {
+                            Styling.commit();
+                            Actions.current-tool = Action.select;
+                        }
                     } else if e.kind == PointerEventKind.down && Actions.current-tool == Action.select {
                         Canvas.select-begin(self.mouse-x / 1phx, self.mouse-y / 1phx,
                             e.modifiers.control ? SelectionMode.remove

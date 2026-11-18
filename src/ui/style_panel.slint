@@ -400,9 +400,14 @@ export component ColorPopover inherits FocusScope {
     width: root.cols * root.cell - 1px + 2 * root.pad;
     height: panel.preferred-height;
 
+    // the hex/RGBA inputs take their own keys, so "i" there is just typed
     key-pressed(e) => {
         if e.text == Key.Escape {
             root.close();
+            return accept;
+        }
+        if e.text == "i" && !e.modifiers.control {
+            root.toggle-sampling();
             return accept;
         }
         reject
