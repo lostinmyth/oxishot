@@ -2,12 +2,14 @@ pub mod arrow;
 pub mod circle;
 pub mod rectangle;
 pub mod stroke;
+pub mod text;
 
 use arrow::Arrow;
 use circle::Circle;
 use rectangle::Rectangle;
 use slint::Rgba8Pixel;
 use stroke::Stroke;
+use text::Text;
 
 use crate::raster::Layer;
 
@@ -30,6 +32,7 @@ pub enum Shape {
     Rectangle(Rectangle),
     Circle(Circle),
     Arrow(Arrow),
+    Text(Text),
 }
 
 impl Shape {
@@ -39,6 +42,7 @@ impl Shape {
             Shape::Rectangle(r) => r,
             Shape::Circle(c) => c,
             Shape::Arrow(a) => a,
+            Shape::Text(t) => t,
         }
     }
 
@@ -48,6 +52,7 @@ impl Shape {
             Shape::Rectangle(r) => r,
             Shape::Circle(c) => c,
             Shape::Arrow(a) => a,
+            Shape::Text(t) => t,
         }
     }
 

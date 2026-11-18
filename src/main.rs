@@ -6,7 +6,7 @@ mod utils;
 
 use configuration::args::{Input, parse_args};
 use editor::Editor;
-use shapes::{arrow::Arrow, circle::Circle, rectangle::Rectangle, stroke::Stroke};
+use shapes::{arrow::Arrow, circle::Circle, rectangle::Rectangle, stroke::Stroke, text::Text};
 use slint::Rgba8Pixel;
 use std::{cell::RefCell, env, rc::Rc};
 
@@ -134,6 +134,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 push_overlay(&win, &ed);
                 win.unwrap().global::<Canvas>().set_live_path("".into());
             }
+        }
+    });
+
+    canvas.on_commit_text({
+        let (ed, win) = (editor.clone(), window.as_weak());
+        move |x, y, text| {
+            let Some(w) = win.upgrade() else { return };
+            let c = w.global::<Canvas>();
+            let shape = Shape::Text(Text {
+                pos: (x, y),
+                text: text.to_string(),
+                size: c.get_font_size(),
+                style: Style {
+                    color: to_px(c.get_brush_color()),
+                    radius: 0.0,
+                },
+            });
+            let mut ed = ed.borrow_mut();
+            ed.commit(shape);
+            push_overlay(&win, &ed);
         }
     });
 

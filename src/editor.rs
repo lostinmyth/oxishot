@@ -37,11 +37,16 @@ impl Editor {
         let Some(s) = self.current.take() else {
             return false;
         };
+        self.commit(s);
+        self.live_path.clear();
+        true
+    }
+
+    /// Adds a finished shape to the layer and history.
+    pub fn commit(&mut self, s: Shape) {
         s.rasterize(&mut self.layer);
         self.history.push(s);
         self.redo.clear();
-        self.live_path.clear();
-        true
     }
 
     pub fn rebuild(&mut self) {

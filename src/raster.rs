@@ -47,6 +47,36 @@ impl Layer {
         }
     }
 
+    /// Blends a `gw`x`gh` coverage bitmap (e.g. a glyph) with its top-left at (`x`, `y`).
+    pub fn coverage(
+        &mut self,
+        x: f32,
+        y: f32,
+        gw: usize,
+        gh: usize,
+        cov: &[u8],
+        color: Rgba8Pixel,
+    ) {
+        let (w, h) = (self.buf.width() as i32, self.buf.height() as i32);
+        let (ox, oy) = (x.round() as i32, y.round() as i32);
+        let (gw_i, gh_i) = (gw as i32, gh as i32);
+        // glyph-local ranges that land inside the buffer
+        let (gx0, gx1) = ((-ox).max(0), (w - ox).min(gw_i));
+        let (gy0, gy1) = ((-oy).max(0), (h - oy).min(gh_i));
+        let px = self.buf.make_mut_slice();
+
+        for gy in gy0..gy1 {
+            let dst_row = (oy + gy) * w + ox;
+            let src_row = gy * gw_i;
+            for gx in gx0..gx1 {
+                let c = cov[(src_row + gx) as usize];
+                if c > 0 {
+                    blend_over(&mut px[(dst_row + gx) as usize], color, c as f32 / 255.0);
+                }
+            }
+        }
+    }
+
     /// Ellipse outline with center `c` and radii `r`: pixels whose
     /// (approximate) distance to the ellipse is within the stroke radius.
     pub fn ellipse(&mut self, c: (f32, f32), r: (f32, f32), style: Style) {

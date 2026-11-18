@@ -2,9 +2,11 @@ export global Canvas {
     callback begin(float, float);
     callback extend(float, float);
     callback end();
+    callback commit-text(float, float, string);
 
     in property <string> live-path;
     in property <image> overlay;
     in property <color> brush-color: #ef4444;
     in property <float> brush-radius: 3;
+    in property <float> font-size: 24;
 }

@@ -1,4 +1,5 @@
 import { Toolbar } from "toolbar/toolbar.slint";
+import "../assets/fonts/DejaVuSans.ttf";
 
 import { Action, Actions } from "actions.slint";
 import { Canvas } from "canvas.slint";
@@ -9,6 +10,28 @@ export { Canvas } from "canvas.slint";
 export component MainWindow inherits Window {
     in property <image> img;
     forward-focus: keys;
+
+    // text tool: where the pending TextInput sits and whether it's open
+    property <bool> typing;
+    property <length> text-x;
+    property <length> text-y;
+
+    // switching tools (e.g. via the toolbar) commits pending text
+    property <Action> tool: Actions.current-tool;
+    changed tool => { root.commit-text(); }
+
+    function commit-text() {
+        if root.typing && text-editor.text != "" {
+            Canvas.commit-text(root.text-x / 1phx, root.text-y / 1phx, text-editor.text);
+        }
+        root.cancel-text();
+    }
+
+    function cancel-text() {
+        root.typing = false;
+        text-editor.text = "";
+        keys.focus();
+    }
 
     width: root.img.width * 1phx;
     height: root.img.height * 1phx;
@@ -37,11 +60,18 @@ export component MainWindow inherits Window {
     }
 
     TouchArea {
-        enabled: Actions.current-tool == Action.brush || Actions.current-tool == Action.rectangle || Actions.current-tool == Action.circle || Actions.current-tool == Action.arrow;
-        mouse-cursor: crosshair;
+        enabled: Actions.current-tool == Action.brush || Actions.current-tool == Action.text || Actions.current-tool == Action.rectangle || Actions.current-tool == Action.circle || Actions.current-tool == Action.arrow;
+        mouse-cursor: Actions.current-tool == Action.text ? MouseCursor.text : MouseCursor.crosshair;
         pointer-event(e) => {
             if e.button == PointerEventButton.left {
-                if e.kind == PointerEventKind.down {
+                if e.kind == PointerEventKind.down && Actions.current-tool == Action.text {
+                    // clicking elsewhere commits the previous text and starts a new one
+                    root.commit-text();
+                    root.text-x = self.mouse-x;
+                    root.text-y = self.mouse-y;
+                    root.typing = true;
+                    text-editor.focus();
+                } else if e.kind == PointerEventKind.down {
                     Canvas.begin(self.mouse-x / 1phx, self.mouse-y / 1phx);
                 } else if e.kind == PointerEventKind.up {
                     Canvas.end();
@@ -50,6 +80,32 @@ export component MainWindow inherits Window {
         }
         moved => {
             Canvas.extend(self.mouse-x / 1phx, self.mouse-y / 1phx);
+        }
+    }
+
+    // declared after the TouchArea so it sits on top and gets clicks for the caret
+    // keys the TextInput doesn't use (Escape) bubble up to this scope
+    FocusScope {
+        x: root.text-x;
+        y: root.text-y;
+        width: text-editor.preferred-width;
+        height: text-editor.preferred-height;
+        visible: root.typing;
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                root.cancel-text();
+                return accept;
+            }
+            reject
+        }
+
+        text-editor := TextInput {
+            enabled: root.typing;
+            single-line: true;
+            font-family: "DejaVu Sans";
+            font-size: Canvas.font-size * 1phx;
+            color: Canvas.brush-color;
+            accepted => { root.commit-text(); }
         }
     }
 
@@ -117,6 +173,7 @@ export component MainWindow inherits Window {
                     return reject;
                 }
                 if event.text == "b" { Actions.current-tool = Action.brush; return accept; }
+                if event.text == "t" { Actions.current-tool = Action.text; return accept; }
                 if event.text == "r" { Actions.current-tool = Action.rectangle; return accept; }
                 if event.text == "o" { Actions.current-tool = Action.circle; return accept; }
                 if event.text == "a" { Actions.current-tool = Action.arrow; return accept; }
