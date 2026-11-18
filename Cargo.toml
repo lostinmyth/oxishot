@@ -5,10 +5,11 @@ edition = "2024"
 
 [dependencies]
 arboard = { version = "3.7", features = ["wayland-data-control"] }
-fontdue = "0.9.5"
 lexopt = "0.3.2"
+parley = "0.11.1"
 png = "0.18"
 rfd = "0.18"
+swash = "0.2.10"
 slint = { version = "1.18.1", features = ["raw-window-handle-06"] }
 
 [build-dependencies]

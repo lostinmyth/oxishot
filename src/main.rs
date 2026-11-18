@@ -7,8 +7,15 @@ mod utils;
 
 use configuration::args::{Input, parse_args};
 use editor::{Bounds, Editor, SelectMode};
-use shapes::{arrow::Arrow, circle::Circle, rectangle::Rectangle, stroke::Stroke, text::Text};
-use slint::{ModelRc, Rgba8Pixel, VecModel};
+use shapes::{
+    arrow::Arrow,
+    circle::Circle,
+    rectangle::Rectangle,
+    stroke::Stroke,
+    text::{self, Font, Text},
+};
+use parley::fontique::FamilyId;
+use slint::{ModelRc, Rgba8Pixel, SharedString, VecModel};
 use std::{
     cell::RefCell,
     path::Path,
@@ -103,7 +110,22 @@ fn current_style(win: &MainWindow) -> Style {
         color: to_px(s.get_stroke()),
         radius: s.get_radius(),
         fill: (fill.a > 0).then_some(fill),
+        font: Font {
+            family: text::family_id(&s.get_font_family()).unwrap_or_else(text::default_family),
+            weight: s.get_font_weight() as f32,
+            size: s.get_font_size(),
+        },
     }
+}
+
+/// Shows `family` in the style panel with the weights it has, moving the
+/// weight to the nearest of them.
+fn push_family(s: &Styling, family: FamilyId) {
+    let weights = text::weights(family);
+    s.set_font_weight(text::nearest_weight(&weights, s.get_font_weight() as f32) as i32);
+    s.set_font_family(text::family_name(family).into());
+    let weights: Vec<i32> = weights.into_iter().map(i32::from).collect();
+    s.set_font_weights(ModelRc::new(VecModel::from(weights)));
 }
 
 /// Shows the selection's style in the style panel: each field comes from
@@ -116,6 +138,8 @@ fn push_style(win: &MainWindow, ed: &Editor) {
     let stroked = shapes.iter().find(|sh| sh.stroked());
     s.set_selection_fillable(fillable.is_some());
     s.set_selection_stroked(stroked.is_some());
+    let text = shapes.iter().find(|sh| matches!(sh, Shape::Text(_)));
+    s.set_selection_text(text.is_some());
     if let Some(sh) = shapes.first() {
         s.set_stroke(to_color(sh.style().color));
     }
@@ -124,6 +148,12 @@ fn push_style(win: &MainWindow, ed: &Editor) {
     }
     if let Some(sh) = stroked {
         s.set_radius(sh.style().radius);
+    }
+    if let Some(sh) = text {
+        let f = sh.style().font;
+        s.set_font_size(f.size);
+        s.set_font_weight(f.weight as i32);
+        push_family(&s, f.family);
     }
 }
 
@@ -409,11 +439,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let (ed, win) = (editor.clone(), window.as_weak());
         move |x, y, text| {
             let Some(w) = win.upgrade() else { return };
-            let c = w.global::<Canvas>();
             let shape = Shape::Text(Text {
                 pos: (x, y),
                 text: text.to_string(),
-                size: c.get_font_size(),
                 angle: 0.0,
                 style: Style {
                     radius: 0.0,
@@ -433,6 +461,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let (ed, win) = (editor.clone(), window.as_weak());
         move |field| {
             let Some(w) = win.upgrade() else { return };
+            if field == StyleField::FontFamily {
+                let s = w.global::<Styling>();
+                let family = text::family_id(&s.get_font_family()).unwrap_or_else(text::default_family);
+                push_family(&s, family);
+            }
             let style = current_style(&w);
             let mut ed = ed.borrow_mut();
             let starting = !ed.restyling();
@@ -440,6 +473,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 StyleField::Stroke => st.color = style.color,
                 StyleField::Fill if shape.fillable() => st.fill = style.fill,
                 StyleField::Radius if shape.stroked() => st.radius = style.radius,
+                _ if !matches!(shape, Shape::Text(_)) => {}
+                // the weight moves with the family to one it has
+                StyleField::FontFamily => {
+                    st.font.family = style.font.family;
+                    st.font.weight = style.font.weight;
+                }
+                StyleField::FontWeight => st.font.weight = style.font.weight,
+                StyleField::FontSize => st.font.size = style.font.size,
                 _ => {}
             });
             if !changed {
@@ -465,6 +506,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     });
+    {
+        let families: Vec<SharedString> = text::families().into_iter().map(Into::into).collect();
+        styling.on_find_fonts(move |q| {
+            let q = q.to_lowercase();
+            let hits = families.iter().filter(|f| f.to_lowercase().contains(&q));
+            ModelRc::new(VecModel::from(hits.cloned().collect::<Vec<_>>()))
+        });
+    }
+    push_family(&styling, text::default_family());
     styling.on_to_hex(|c| {
         let mut hex = format!("#{:02x}{:02x}{:02x}", c.red(), c.green(), c.blue());
         if c.alpha() < 255 {

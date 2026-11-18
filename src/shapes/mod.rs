@@ -23,6 +23,8 @@ pub struct Style {
     pub radius: f32,
     /// Interior color; only rectangles and circles have one.
     pub fill: Option<Rgba8Pixel>,
+    /// Only text uses it.
+    pub font: text::Font,
 }
 
 pub trait Draw {

@@ -1,4 +1,4 @@
-export enum StyleField { stroke, fill, radius }
+export enum StyleField { stroke, fill, radius, font-family, font-weight, font-size }
 
 export struct ParsedColor { ok: bool, color: color }
 
@@ -10,12 +10,20 @@ export global Styling {
     in-out property <color> fill: transparent;
     // stroke half-width (px)
     in-out property <float> radius: 3;
+    // text: an installed family (Rust sets the system default), its CSS
+    // weight, and the size in px
+    in-out property <string> font-family;
+    in-out property <int> font-weight: 400;
+    in-out property <float> font-size: 24;
+    // set from Rust: the weights `font-family` has, ascending
+    in property <[int]> font-weights: [400];
 
     // set from Rust: something is selected, so edits restyle it
     in property <bool> has-selection;
     // some selected shape takes a fill / a stroke width
     in property <bool> selection-fillable;
     in property <bool> selection-stroked;
+    in property <bool> selection-text;
     // distinct colors the shapes use, most recent first
     in property <[color]> used-colors;
 
@@ -23,6 +31,9 @@ export global Styling {
     // live, and `commit` turns everything since the last commit into one undo step
     callback preview(StyleField);
     callback commit();
+
+    // installed families whose name contains the query (case-insensitive)
+    pure callback find-fonts(string) -> [string];
 
     // "#rrggbb", plus "aa" when not opaque
     pure callback to-hex(color) -> string;

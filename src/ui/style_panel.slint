@@ -1,6 +1,7 @@
 import { Action, Actions } from "actions.slint";
 import { Styling, StyleField } from "styling.slint";
 import { ColorPicker, ColorDot } from "color_picker.slint";
+import { ListView } from "std-widgets.slint";
 
 component ColorField inherits Rectangle {
     in property <color> value;
@@ -41,18 +42,23 @@ component ColorField inherits Rectangle {
     }
 }
 
-// Stroke thickness in px (twice Styling.radius); takes fractions like 0.5.
-component WidthField inherits Rectangle {
+// A number typed in (fractions like 0.5 too), shown as `value`.
+component NumberField inherits Rectangle {
+    in property <float> value;
+    // inputs outside (0, max] are ignored
+    in property <float> max;
+    in property <string> unit: "px";
+    // a valid number was typed (not yet committed)
+    callback edited(float);
     // Enter was pressed; focus can go back to the shortcuts
     callback accepted();
     callback focus-changed(bool);
 
-    property <float> radius: Styling.radius;
-    changed radius => { root.sync(); }
+    changed value => { root.sync(); }
     init => { root.sync(); }
 
     function sync() {
-        if !input.has-focus { input.text = round(Styling.radius * 200) / 100; }
+        if !input.has-focus { input.text = round(root.value * 100) / 100; }
     }
 
     height: 24px;
@@ -79,11 +85,8 @@ component WidthField inherits Rectangle {
             selection-background-color: #3b82f680;
             edited => {
                 if self.text.is-float() {
-                    let w = self.text.to-float();
-                    if w > 0 && w <= 200 {
-                        Styling.radius = w / 2;
-                        Styling.preview(StyleField.radius);
-                    }
+                    let v = self.text.to-float();
+                    if v > 0 && v <= root.max { root.edited(v); }
                 }
             }
             accepted => { root.accepted(); }
@@ -97,11 +100,66 @@ component WidthField inherits Rectangle {
         }
 
         Text {
-            text: "px";
+            text: root.unit;
             font-size: 12px;
             color: #71717a;
             vertical-alignment: center;
         }
+    }
+}
+
+// Shows a value; clicking opens a popover to pick another.
+component PickField inherits Rectangle {
+    in property <string> text;
+    // the value is drawn in this font (empty: the UI's)
+    in property <string> font-family;
+    in property <int> font-weight: 400;
+    in property <bool> active;
+    callback clicked();
+
+    height: 24px;
+    border-radius: 5px;
+    background: root.active ? #ffffff1f : ta.has-hover ? #ffffff14 : #ffffff0a;
+    border-width: 1px;
+    border-color: root.active ? #3b82f6 : #ffffff0f;
+    animate background { duration: 90ms; }
+
+    HorizontalLayout {
+        padding-left: 6px;
+        padding-right: 6px;
+        spacing: 4px;
+
+        Text {
+            text: root.text;
+            font-family: root.font-family;
+            font-weight: root.font-weight;
+            font-size: 12px;
+            overflow: elide;
+            color: #fafafa;
+            vertical-alignment: center;
+        }
+
+        Text {
+            horizontal-stretch: 0;
+            text: "▾";
+            font-size: 10px;
+            color: #71717a;
+            vertical-alignment: center;
+        }
+    }
+
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+global Weights {
+    public pure function name(w: int) -> string {
+        w == 100 ? "Thin" : w == 200 ? "Extra Light" : w == 300 ? "Light"
+            : w == 400 ? "Regular" : w == 500 ? "Medium" : w == 600 ? "Semibold"
+            : w == 700 ? "Bold" : w == 800 ? "Extra Bold" : w == 900 ? "Black"
+            : "\{w}"
     }
 }
 
@@ -110,7 +168,7 @@ component Row inherits HorizontalLayout {
     spacing: 4px;
 
     Text {
-        width: 32px;
+        width: 40px;
         text: root.label;
         font-size: 11px;
         color: #a1a1aa;
@@ -121,14 +179,14 @@ component Row inherits HorizontalLayout {
 }
 
 // The style of new shapes, or of the selection: color fields that open
-// a ColorPopover, and the stroke width.
+// a ColorPopover, the stroke width, and for text the font.
 export component StylePanel inherits Rectangle {
     // the field whose popover is open, if `picking`
     in property <bool> picking;
     in property <StyleField> picking-field;
     callback open-picker(StyleField);
-    // the width input is done; focus can go back to the shortcuts
-    callback width-accepted();
+    // a number input is done; focus can go back to the shortcuts
+    callback input-accepted();
 
     // only the drawing tools and a selection have a style to edit
     property <Action> tool: Actions.current-tool;
@@ -138,11 +196,12 @@ export component StylePanel inherits Rectangle {
     property <bool> show-fill: Styling.has-selection ? Styling.selection-fillable
         : tool == Action.rectangle || tool == Action.circle;
     property <bool> show-width: Styling.has-selection ? Styling.selection-stroked : tool != Action.text;
+    property <bool> show-font: Styling.has-selection ? Styling.selection-text : tool == Action.text;
 
-    // the width input has focus
+    // a number input has focus
     property <bool> typing;
     // faded at rest (less than the toolbars: its values should stay readable); solid while in use
-    property <bool> active: ta.has-hover || root.picking || (root.typing && root.show-width);
+    property <bool> active: ta.has-hover || root.picking || root.typing;
 
     height: self.preferred-height;
 
@@ -182,8 +241,49 @@ export component StylePanel inherits Rectangle {
 
             if root.show-width: Row {
                 label: "Width";
-                WidthField {
-                    accepted => { root.width-accepted(); }
+                NumberField {
+                    value: Styling.radius * 2;
+                    max: 200;
+                    edited(w) => {
+                        Styling.radius = w / 2;
+                        Styling.preview(StyleField.radius);
+                    }
+                    accepted => { root.input-accepted(); }
+                    focus-changed(f) => { root.typing = f; }
+                }
+            }
+
+            if root.show-font: Row {
+                label: "Font";
+                PickField {
+                    text: Styling.font-family;
+                    font-family: Styling.font-family;
+                    active: root.picking && root.picking-field == StyleField.font-family;
+                    clicked => { root.open-picker(StyleField.font-family); }
+                }
+            }
+
+            if root.show-font: Row {
+                label: "Weight";
+                PickField {
+                    text: Weights.name(Styling.font-weight);
+                    font-family: Styling.font-family;
+                    font-weight: Styling.font-weight;
+                    active: root.picking && root.picking-field == StyleField.font-weight;
+                    clicked => { root.open-picker(StyleField.font-weight); }
+                }
+            }
+
+            if root.show-font: Row {
+                label: "Size";
+                NumberField {
+                    value: Styling.font-size;
+                    max: 1000;
+                    edited(v) => {
+                        Styling.font-size = v;
+                        Styling.preview(StyleField.font-size);
+                    }
+                    accepted => { root.input-accepted(); }
                     focus-changed(f) => { root.typing = f; }
                 }
             }
@@ -316,6 +416,177 @@ export component ColorPopover inherits FocusScope {
                         picker.set-color(c);
                         root.set(c);
                         Styling.commit();
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Searchable list of the installed font families, each shown in itself.
+export component FontPopover inherits FocusScope {
+    callback close();
+
+    public function open() {
+        search.text = "";
+        list.content-y = 0;
+        search.focus();
+    }
+
+    function pick(f: string) {
+        Styling.font-family = f;
+        Styling.preview(StyleField.font-family);
+        root.close();
+    }
+
+    property <[string]> matches: Styling.find-fonts(search.text);
+
+    width: 240px;
+    height: 320px;
+
+    key-pressed(e) => {
+        if e.text == Key.Escape {
+            root.close();
+            return accept;
+        }
+        reject
+    }
+
+    Rectangle {
+        background: #18181bf2;
+        border-radius: 8px;
+        border-width: 1px;
+        border-color: #ffffff14;
+        drop-shadow-blur: 16px;
+        drop-shadow-offset-y: 4px;
+        drop-shadow-color: #00000070;
+
+        TouchArea { }
+
+        VerticalLayout {
+            padding: 8px;
+            spacing: 6px;
+
+            Rectangle {
+                height: 26px;
+                border-radius: 5px;
+                background: #ffffff0a;
+                border-width: 1px;
+                border-color: search.has-focus ? #3b82f6 : #ffffff0f;
+
+                if search.text == "": Text {
+                    x: 7px;
+                    text: "Search fonts";
+                    font-size: 12px;
+                    color: #71717a;
+                    vertical-alignment: center;
+                }
+
+                search := TextInput {
+                    x: 7px;
+                    width: parent.width - 14px;
+                    single-line: true;
+                    vertical-alignment: center;
+                    font-size: 12px;
+                    color: #fafafa;
+                    selection-background-color: #3b82f680;
+                    // Enter takes the first match
+                    accepted => {
+                        if root.matches.length > 0 { root.pick(root.matches[0]); }
+                    }
+                }
+            }
+
+            if root.matches.length == 0: Text {
+                text: "No fonts match";
+                font-size: 11px;
+                color: #71717a;
+            }
+
+            list := ListView {
+                for f in root.matches: Rectangle {
+                    height: 26px;
+                    border-radius: 4px;
+                    background: f == Styling.font-family ? #3b82f640 : ta.has-hover ? #ffffff14 : transparent;
+
+                    Text {
+                        x: 6px;
+                        width: parent.width - 12px;
+                        text: f;
+                        font-family: f;
+                        font-size: 14px;
+                        color: #fafafa;
+                        overflow: elide;
+                        vertical-alignment: center;
+                    }
+
+                    ta := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.pick(f); }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// The weights the current family has, each shown in itself.
+export component WeightPopover inherits FocusScope {
+    callback close();
+
+    public function open() {
+        root.focus();
+    }
+
+    width: 180px;
+    height: panel.preferred-height;
+
+    key-pressed(e) => {
+        if e.text == Key.Escape {
+            root.close();
+            return accept;
+        }
+        reject
+    }
+
+    panel := Rectangle {
+        background: #18181bf2;
+        border-radius: 8px;
+        border-width: 1px;
+        border-color: #ffffff14;
+        drop-shadow-blur: 16px;
+        drop-shadow-offset-y: 4px;
+        drop-shadow-color: #00000070;
+
+        TouchArea { }
+
+        VerticalLayout {
+            padding: 6px;
+            spacing: 1px;
+
+            for w in Styling.font-weights: Rectangle {
+                height: 26px;
+                border-radius: 4px;
+                background: w == Styling.font-weight ? #3b82f640 : ta.has-hover ? #ffffff14 : transparent;
+
+                Text {
+                    x: 6px;
+                    width: parent.width - 12px;
+                    text: Weights.name(w);
+                    font-family: Styling.font-family;
+                    font-weight: w;
+                    font-size: 14px;
+                    color: #fafafa;
+                    overflow: elide;
+                    vertical-alignment: center;
+                }
+
+                ta := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        Styling.font-weight = w;
+                        Styling.preview(StyleField.font-weight);
+                        root.close();
                     }
                 }
             }

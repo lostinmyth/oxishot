@@ -1,9 +1,8 @@
 import { Toolbar } from "toolbar/toolbar.slint";
-import "../assets/fonts/DejaVuSans.ttf";
 
 import { Action, Actions } from "actions.slint";
 import { Canvas, SelectionMode } from "canvas.slint";
-import { StylePanel, ColorPopover } from "style_panel.slint";
+import { StylePanel, ColorPopover, FontPopover, WeightPopover } from "style_panel.slint";
 import { Styling, StyleField } from "styling.slint";
 
 export { Actions, Action } from "./actions.slint";
@@ -213,8 +212,9 @@ export component MainWindow inherits Window {
         text-editor := TextInput {
             enabled: root.typing;
             single-line: true;
-            font-family: "DejaVu Sans";
-            font-size: Canvas.font-size * 1phx;
+            font-family: Styling.font-family;
+            font-weight: Styling.font-weight;
+            font-size: Styling.font-size * 1phx;
             color: Styling.stroke;
             accepted => { root.commit-text(); }
         }
@@ -255,12 +255,18 @@ export component MainWindow inherits Window {
         open-picker(f) => {
             root.picking-field = f;
             root.picking = true;
-            popover.open-with(f == StyleField.fill ? Styling.fill : Styling.stroke);
+            if f == StyleField.font-family {
+                font-popover.open();
+            } else if f == StyleField.font-weight {
+                weight-popover.open();
+            } else {
+                popover.open-with(f == StyleField.fill ? Styling.fill : Styling.stroke);
+            }
         }
         changed relevant => {
             if !self.relevant { root.close-picker(); }
         }
-        width-accepted => { keys.focus(); }
+        input-accepted => { keys.focus(); }
     }
 
     paintbar := Toolbar {
@@ -313,10 +319,24 @@ export component MainWindow inherits Window {
         }
 
         popover := ColorPopover {
-            visible: root.picking;
+            visible: root.picking && (root.picking-field == StyleField.stroke || root.picking-field == StyleField.fill);
             x: parent.width - self.width - 8px;
             y: max(8px, min(style-panel.y + style-panel.height + 6px, parent.height - self.height - 8px));
             field: root.picking-field;
+            close => { root.close-picker(); }
+        }
+
+        font-popover := FontPopover {
+            visible: root.picking && root.picking-field == StyleField.font-family;
+            x: parent.width - self.width - 8px;
+            y: max(8px, min(style-panel.y + style-panel.height + 6px, parent.height - self.height - 8px));
+            close => { root.close-picker(); }
+        }
+
+        weight-popover := WeightPopover {
+            visible: root.picking && root.picking-field == StyleField.font-weight;
+            x: parent.width - self.width - 8px;
+            y: max(8px, min(style-panel.y + style-panel.height + 6px, parent.height - self.height - 8px));
             close => { root.close-picker(); }
         }
 
