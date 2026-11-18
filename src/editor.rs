@@ -70,6 +70,11 @@ enum Gesture {
     Restyle {
         originals: Vec<(usize, Style)>,
     },
+    /// Live-previewing a typed size for the one selected box shape, which
+    /// is lifted onto `drag_layer`; `scale` stretches it about its center.
+    Resize {
+        scale: Scale,
+    },
 }
 
 /// Extra slack (px) around a shape's outline that still counts as a click on it.
@@ -491,6 +496,7 @@ impl Editor {
                 | Gesture::Rotate { .. }
                 | Gesture::Scale { .. }
                 | Gesture::Restyle { .. }
+                | Gesture::Resize { .. }
         )
     }
 
@@ -548,7 +554,7 @@ impl Editor {
         match std::mem::replace(&mut self.gesture, Gesture::Idle) {
             Gesture::Idle | Gesture::Marquee { .. } => false,
             // not a pointer gesture; put it back for end_restyle
-            g @ Gesture::Restyle { .. } => {
+            g @ (Gesture::Restyle { .. } | Gesture::Resize { .. }) => {
                 self.gesture = g;
                 false
             }
@@ -597,6 +603,13 @@ impl Editor {
             Gesture::Scale { scale, frames, .. } => {
                 frames.iter().map(|f| f.scaled(scale)).collect()
             }
+            Gesture::Resize { scale } => (self.selected.iter())
+                .map(|&i| {
+                    let mut s = self.shapes[i].clone();
+                    s.scale(scale);
+                    s.frame()
+                })
+                .collect(),
             _ => self
                 .selected
                 .iter()
@@ -647,18 +660,78 @@ impl Editor {
     }
 
     pub fn restyling(&self) -> bool {
-        matches!(self.gesture, Gesture::Restyle { .. })
+        matches!(
+            self.gesture,
+            Gesture::Restyle { .. } | Gesture::Resize { .. }
+        )
     }
 
-    /// Ends a live restyle, making it one undoable edit (if anything
-    /// changed). Returns whether the layers changed.
-    pub fn end_restyle(&mut self) -> bool {
-        if !self.restyling() {
+    /// Width and height of the selection, if it's a single box shape
+    /// (rectangle, circle or blur), with a live resize applied.
+    pub fn box_size(&self) -> Option<Point> {
+        let &[i] = &self.selected[..] else {
+            return None;
+        };
+        let (a, b, _) = self.shapes[i].span()?;
+        let (w, h) = ((b.0 - a.0).abs(), (b.1 - a.1).abs());
+        Some(match &self.gesture {
+            Gesture::Resize { scale } => (w * scale.factors.0, h * scale.factors.1),
+            _ => (w, h),
+        })
+    }
+
+    /// Previews the single selected box shape at size `w` x `h`, keeping its
+    /// center; `end_restyle` records it as one edit. Returns false when the
+    /// selection isn't one box shape or another gesture is running.
+    pub fn resize_live(&mut self, (w, h): Point) -> bool {
+        let &[i] = &self.selected[..] else {
             return false;
+        };
+        let Some((a, b, angle)) = self.shapes[i].span() else {
+            return false;
+        };
+        // a flat side can't be stretched
+        let factor = |new: f32, old: f32| if old < 1e-3 { 1.0 } else { new / old };
+        let factors = (factor(w, (b.0 - a.0).abs()), factor(h, (b.1 - a.1).abs()));
+        match &mut self.gesture {
+            Gesture::Resize { scale } => scale.factors = factors,
+            Gesture::Idle => {
+                let anchor = ((a.0 + b.0) * 0.5, (a.1 + b.1) * 0.5);
+                self.gesture = Gesture::Resize {
+                    scale: Scale {
+                        anchor,
+                        angle,
+                        factors,
+                    },
+                };
+                self.lift();
+            }
+            _ => return false,
         }
-        let Gesture::Restyle { originals } = std::mem::replace(&mut self.gesture, Gesture::Idle)
-        else {
+        let Gesture::Resize { scale } = self.gesture else {
             unreachable!()
+        };
+        self.redraw_lifted(|shape| shape.scale(&scale));
+        true
+    }
+
+    /// Ends a live restyle or resize, making it one undoable edit (if
+    /// anything changed). Returns whether the layers changed.
+    pub fn end_restyle(&mut self) -> bool {
+        let originals = match std::mem::replace(&mut self.gesture, Gesture::Idle) {
+            Gesture::Restyle { originals } => originals,
+            Gesture::Resize { scale } => {
+                if scale.factors != (1.0, 1.0) {
+                    self.record(Op::Scale(self.selected.clone(), scale));
+                } else {
+                    self.rebuild();
+                }
+                return true;
+            }
+            g => {
+                self.gesture = g;
+                return false;
+            }
         };
         // the shapes already hold the new styles, so the originals are the inverse
         let inv: Vec<_> = (originals.into_iter())

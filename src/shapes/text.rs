@@ -51,7 +51,12 @@ thread_local! {
 /// Every installed font family, sorted for display.
 pub fn families() -> Vec<String> {
     ENGINE.with_borrow_mut(|e| {
-        let mut v: Vec<String> = e.fonts.collection.family_names().map(str::to_owned).collect();
+        let mut v: Vec<String> = e
+            .fonts
+            .collection
+            .family_names()
+            .map(str::to_owned)
+            .collect();
         v.sort_by_cached_key(|s| s.to_lowercase());
         v.dedup();
         v
@@ -63,14 +68,21 @@ pub fn family_id(name: &str) -> Option<FamilyId> {
 }
 
 pub fn family_name(id: FamilyId) -> String {
-    ENGINE.with_borrow_mut(|e| e.fonts.collection.family(id).map_or_else(String::new, |f| f.name().to_owned()))
+    ENGINE.with_borrow_mut(|e| {
+        e.fonts
+            .collection
+            .family(id)
+            .map_or_else(String::new, |f| f.name().to_owned())
+    })
 }
 
 /// The family Slint shows when none is set: the system's sans-serif.
 pub fn default_family() -> FamilyId {
     ENGINE.with_borrow_mut(|e| {
         let c = &mut e.fonts.collection;
-        let generic = FALLBACKS.into_iter().find_map(|g| c.generic_families(g).next());
+        let generic = FALLBACKS
+            .into_iter()
+            .find_map(|g| c.generic_families(g).next());
         generic
             .or_else(|| {
                 let first = c.family_names().next()?.to_owned();
@@ -95,7 +107,10 @@ pub fn weights(family: FamilyId) -> Vec<u16> {
             let axis = font.axes().iter().find(|a| a.tag.to_be_bytes() == *b"wght");
             match axis {
                 Some(a) if font.has_weight_axis() => {
-                    let (lo, hi) = ((a.min / 100.0).ceil() as u16, (a.max / 100.0).floor() as u16);
+                    let (lo, hi) = (
+                        (a.min / 100.0).ceil() as u16,
+                        (a.max / 100.0).floor() as u16,
+                    );
                     v.extend((lo..=hi).map(|w| w * 100));
                 }
                 _ => v.push(font.weight().value().round() as u16),
@@ -149,7 +164,8 @@ impl Draw for Text {
                     };
                     let r = run.run();
                     let font = r.font();
-                    let Some(face) = FontRef::from_index(font.data.data(), font.index as usize) else {
+                    let Some(face) = FontRef::from_index(font.data.data(), font.index as usize)
+                    else {
                         continue;
                     };
                     let mut scaler = (e.scale.builder(face))
@@ -178,7 +194,9 @@ impl Draw for Text {
                         if self.angle == 0.0 {
                             layer.coverage(pos.0, pos.1, size.0, size.1, &img.data, color);
                         } else {
-                            layer.coverage_rotated(pos, size, &img.data, color, self.pos, self.angle);
+                            layer.coverage_rotated(
+                                pos, size, &img.data, color, self.pos, self.angle,
+                            );
                         }
                     }
                 }
@@ -227,13 +245,23 @@ impl Text {
     }
 
     fn layout(&self) -> Layout<()> {
-        let Font { family, weight, size } = self.style.font;
+        let Font {
+            family,
+            weight,
+            size,
+        } = self.style.font;
         ENGINE.with_borrow_mut(|e| {
-            let name = e.fonts.collection.family(family).map(|f| f.name().to_owned());
+            let name = e
+                .fonts
+                .collection
+                .family(family)
+                .map(|f| f.name().to_owned());
             let families: Vec<_> = (name.into_iter().map(|n| FontFamilyName::Named(n.into())))
                 .chain(FALLBACKS.map(FontFamilyName::Generic))
                 .collect();
-            let mut b = e.layout.ranged_builder(&mut e.fonts, &self.text, 1.0, false);
+            let mut b = e
+                .layout
+                .ranged_builder(&mut e.fonts, &self.text, 1.0, false);
             b.push_default(FontFamily::List(Cow::Borrowed(&families)));
             b.push_default(StyleProperty::FontWeight(FontWeight::new(weight)));
             b.push_default(StyleProperty::FontSize(size));
@@ -243,4 +271,3 @@ impl Text {
         })
     }
 }
-

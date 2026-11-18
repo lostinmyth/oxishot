@@ -330,6 +330,17 @@ impl Shape {
         !matches!(self, Shape::Text(_) | Shape::Blur(_))
     }
 
+    /// For shapes spanned by a box (rectangle, circle, blur): its corners
+    /// before rotation and its angle.
+    pub fn span(&self) -> Option<(Point, Point, f32)> {
+        match self {
+            Shape::Rectangle(r) => Some((r.a, r.b, r.angle)),
+            Shape::Circle(c) => Some((c.a, c.b, c.angle)),
+            Shape::Blur(b) => Some((b.a, b.b, b.angle)),
+            _ => None,
+        }
+    }
+
     /// Whether `Style::color` paints anything for this shape.
     pub fn colored(&self) -> bool {
         !matches!(self, Shape::Blur(_))

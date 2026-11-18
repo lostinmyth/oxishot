@@ -160,7 +160,12 @@ impl Layer {
         let inner = (half.0 - r, half.1 - r);
         let (s, k) = angle.sin_cos();
 
-        let ((bx0, by0), (bx1, by1)) = Frame { center: c, half: outer, angle }.aabb();
+        let ((bx0, by0), (bx1, by1)) = Frame {
+            center: c,
+            half: outer,
+            angle,
+        }
+        .aabb();
         let (w, h) = (self.buf.width() as i32, self.buf.height() as i32);
         let x0 = ((bx0 - 1.0).floor() as i32).max(0);
         let y0 = ((by0 - 1.0).floor() as i32).max(0);
@@ -179,8 +184,8 @@ impl Layer {
                 let (fx, fy) = (dx * k + dy * s, dy * k - dx * s);
                 // pixel area inside the outer box minus inside the inner one;
                 // per-axis overlap is exact while the box is axis-aligned
-                let cov = span(fx, outer.0) * span(fy, outer.1)
-                    - span(fx, inner.0) * span(fy, inner.1);
+                let cov =
+                    span(fx, outer.0) * span(fy, outer.1) - span(fx, inner.0) * span(fy, inner.1);
                 if cov > 0.0 {
                     blend_over(&mut px[row + x as usize], color, cov.min(1.0));
                 }
@@ -191,7 +196,12 @@ impl Layer {
     /// Solid rectangle with center `c`, half-size `half` and rotation `angle`.
     pub fn box_fill(&mut self, c: (f32, f32), half: (f32, f32), angle: f32, color: Rgba8Pixel) {
         let (s, k) = angle.sin_cos();
-        let ((bx0, by0), (bx1, by1)) = Frame { center: c, half, angle }.aabb();
+        let ((bx0, by0), (bx1, by1)) = Frame {
+            center: c,
+            half,
+            angle,
+        }
+        .aabb();
         let (w, h) = (self.buf.width() as i32, self.buf.height() as i32);
         let x0 = ((bx0 - 1.0).floor() as i32).max(0);
         let y0 = ((by0 - 1.0).floor() as i32).max(0);
@@ -387,7 +397,10 @@ impl Layer {
 fn blur_rows_t(src: &[Rgba8Pixel], w: usize, r: usize, lo: usize, dst: &mut [Rgba8Pixel]) {
     let rows = src.len() / w;
     let n = dst.len() / rows; // columns kept
-    let (mut a, mut b) = (vec![Rgba8Pixel::default(); w], vec![Rgba8Pixel::default(); w]);
+    let (mut a, mut b) = (
+        vec![Rgba8Pixel::default(); w],
+        vec![Rgba8Pixel::default(); w],
+    );
     for (y, line) in src.chunks_exact(w).enumerate() {
         a.copy_from_slice(line);
         for _ in 0..BLUR_PASSES {

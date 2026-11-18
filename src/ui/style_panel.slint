@@ -179,7 +179,8 @@ component Row inherits HorizontalLayout {
 }
 
 // The style of new shapes, or of the selection: color fields that open
-// a ColorPopover, the stroke width, and for text the font.
+// a ColorPopover, the stroke width, the size of a selected box shape,
+// and for text the font.
 export component StylePanel inherits Rectangle {
     // the field whose popover is open, if `picking`
     in property <bool> picking;
@@ -243,8 +244,36 @@ export component StylePanel inherits Rectangle {
                 }
             }
 
-            if root.show-width: Row {
+            if Styling.has-size: Row {
                 label: "Width";
+                NumberField {
+                    value: Styling.width;
+                    max: 100000;
+                    edited(v) => {
+                        Styling.width = v;
+                        Styling.preview(StyleField.size);
+                    }
+                    accepted => { root.input-accepted(); }
+                    focus-changed(f) => { root.typing = f; }
+                }
+            }
+
+            if Styling.has-size: Row {
+                label: "Height";
+                NumberField {
+                    value: Styling.height;
+                    max: 100000;
+                    edited(v) => {
+                        Styling.height = v;
+                        Styling.preview(StyleField.size);
+                    }
+                    accepted => { root.input-accepted(); }
+                    focus-changed(f) => { root.typing = f; }
+                }
+            }
+
+            if root.show-width: Row {
+                label: "Stroke";
                 NumberField {
                     value: Styling.radius * 2;
                     max: 200;

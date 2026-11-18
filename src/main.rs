@@ -159,6 +159,12 @@ fn push_style(win: &MainWindow, ed: &Editor) {
     if let Some(sh) = stroked {
         s.set_radius(sh.style().radius);
     }
+    let size = ed.box_size();
+    s.set_has_size(size.is_some());
+    if let Some((w, h)) = size {
+        s.set_width(w);
+        s.set_height(h);
+    }
     if let Some(sh) = text {
         let f = sh.style().font;
         s.set_font_size(f.size);
@@ -490,21 +496,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let style = current_style(&w);
             let mut ed = ed.borrow_mut();
             let starting = !ed.restyling();
-            let changed = ed.restyle_live(|shape, st| match field {
-                StyleField::Stroke if shape.colored() => st.color = style.color,
-                StyleField::Fill if shape.fillable() => st.fill = style.fill,
-                StyleField::Radius if shape.stroked() => st.radius = style.radius,
-                StyleField::Blur if matches!(shape, Shape::Blur(_)) => st.blur = style.blur,
-                _ if !matches!(shape, Shape::Text(_)) => {}
-                // the weight moves with the family to one it has
-                StyleField::FontFamily => {
-                    st.font.family = style.font.family;
-                    st.font.weight = style.font.weight;
-                }
-                StyleField::FontWeight => st.font.weight = style.font.weight,
-                StyleField::FontSize => st.font.size = style.font.size,
-                _ => {}
-            });
+            let changed = if field == StyleField::Size {
+                let s = w.global::<Styling>();
+                ed.resize_live((s.get_width(), s.get_height()))
+            } else {
+                ed.restyle_live(|shape, st| match field {
+                    StyleField::Stroke if shape.colored() => st.color = style.color,
+                    StyleField::Fill if shape.fillable() => st.fill = style.fill,
+                    StyleField::Radius if shape.stroked() => st.radius = style.radius,
+                    StyleField::Blur if matches!(shape, Shape::Blur(_)) => st.blur = style.blur,
+                    _ if !matches!(shape, Shape::Text(_)) => {}
+                    // the weight moves with the family to one it has
+                    StyleField::FontFamily => {
+                        st.font.family = style.font.family;
+                        st.font.weight = style.font.weight;
+                    }
+                    StyleField::FontWeight => st.font.weight = style.font.weight,
+                    StyleField::FontSize => st.font.size = style.font.size,
+                    _ => {}
+                })
+            };
             if !changed {
                 return;
             }
@@ -516,7 +527,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 c.set_overlay(slint::Image::from_rgba8(ed.layer.buf.clone()));
             }
             c.set_drag_overlay(slint::Image::from_rgba8(ed.drag_layer.buf.clone()));
-            push_selection(&win, &ed); // a new width resizes the boxes
+            push_selection(&win, &ed); // a new width or size resizes the boxes
         }
     });
     styling.on_commit({

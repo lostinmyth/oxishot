@@ -1,4 +1,4 @@
-export enum StyleField { stroke, fill, radius, font-family, font-weight, font-size, blur }
+export enum StyleField { stroke, fill, radius, font-family, font-weight, font-size, blur, size }
 
 export struct ParsedColor { ok: bool, color: color }
 
@@ -17,6 +17,11 @@ export global Styling {
     in-out property <float> font-size: 24;
     // blur strength (px, about the Gaussian's standard deviation)
     in-out property <float> blur: 8;
+    // the selection's width and height, when it's a single rectangle,
+    // circle or blur (`has-size`); set from Rust, and typed into
+    in property <bool> has-size;
+    in-out property <float> width;
+    in-out property <float> height;
     // set from Rust: the weights `font-family` has, ascending
     in property <[int]> font-weights: [400];
 

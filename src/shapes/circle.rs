@@ -34,7 +34,11 @@ impl Circle {
     /// (center, radii, angle) as drawn: pixel-snapped when axis-aligned.
     fn outline(&self) -> Frame {
         let (center, half) = self.geometry();
-        let f = Frame { center, half, angle: self.angle };
+        let f = Frame {
+            center,
+            half,
+            angle: self.angle,
+        };
         snap_outline(f, self.style.radius)
     }
 }
