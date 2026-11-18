@@ -1,6 +1,7 @@
-use crate::{raster::Layer, shapes::Shape};
-
-use slint::{Rgba8Pixel, SharedPixelBuffer};
+use crate::{
+    raster::Layer,
+    shapes::{Point, Shape},
+};
 
 pub struct Editor {
     pub layer: Layer,
@@ -21,38 +22,50 @@ impl Editor {
         }
     }
 
-    pub fn rasterize(&mut self, shape: &Shape) {
-        match shape {
-            Shape::Stroke(stroke) => {
-                let pts = &stroke.points;
-                if pts.len() == 1 {
-                    self.capsule(pts[0], pts[0], stroke.radius, stroke.color);
-                }
-                for w in pts.windows(2) {
-                    self.capsule(w[0], w[1], stroke.radius, stroke.color);
-                }
-            }
-            Shape::Rectangle(rect) => {
-                let (x0, y0) = rect.a;
-                let (x1, y1) = rect.b;
-                let corners = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)];
-                for i in 0..4 {
-                    self.capsule(corners[i], corners[(i + 1) % 4], rect.radius, rect.color);
-                }
-            }
-        }
+    pub fn begin(&mut self, shape: Shape) {
+        shape.write_preview(&mut self.live_path);
+        self.current = Some(shape);
     }
 
-    fn capsule(&mut self, a: (f32, f32), b: (f32, f32), radius: f32, color: Rgba8Pixel) {
-        self.layer.capsule(a, b, radius, color);
+    pub fn extend(&mut self, p: Point) -> bool {
+        match &mut self.current {
+            Some(s) => s.extend(p, &mut self.live_path),
+            None => false,
+        }
+    }
+    pub fn end(&mut self) -> bool {
+        let Some(s) = self.current.take() else {
+            return false;
+        };
+        s.rasterize(&mut self.layer);
+        self.history.push(s);
+        self.redo.clear();
+        self.live_path.clear();
+        true
     }
 
     pub fn rebuild(&mut self) {
         self.layer.clear();
-        let strokes = std::mem::take(&mut self.history);
-        for s in &strokes {
-            self.rasterize(s);
+        for s in &self.history {
+            s.rasterize(&mut self.layer);
         }
-        self.history = strokes;
+    }
+
+    pub fn undo(&mut self) -> bool {
+        let Some(s) = self.history.pop() else {
+            return false;
+        };
+        self.redo.push(s);
+        self.rebuild();
+        true
+    }
+
+    pub fn redo(&mut self) -> bool {
+        if let Some(shape) = self.redo.pop() {
+            shape.rasterize(&mut self.layer);
+            self.history.push(shape);
+        }
+
+        false
     }
 }

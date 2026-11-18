@@ -1,5 +1,7 @@
 use slint::{Rgba8Pixel, SharedPixelBuffer};
 
+use crate::shapes::Style;
+
 pub struct Layer {
     pub buf: SharedPixelBuffer<Rgba8Pixel>,
 }
@@ -15,7 +17,10 @@ impl Layer {
         self.buf.make_mut_bytes().fill(0);
     }
 
-    pub fn capsule(&mut self, a: (f32, f32), b: (f32, f32), radius: f32, color: Rgba8Pixel) {
+    pub fn capsule(&mut self, a: (f32, f32), b: (f32, f32), style: Style) {
+        let radius = style.radius;
+        let color = style.color;
+
         let (w, h) = (self.buf.width() as i32, self.buf.height() as i32);
         let pad = radius + 1.0;
         let x0 = ((a.0.min(b.0) - pad).floor() as i32).max(0);
