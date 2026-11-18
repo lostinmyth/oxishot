@@ -146,6 +146,21 @@ fn push_selection(win: &slint::Weak<MainWindow>, ed: &Editor) {
     c.set_scale_hover(false);
 }
 
+/// Starts a select gesture at `p` and mirrors it into the UI.
+fn press(win: &slint::Weak<MainWindow>, ed: &mut Editor, p: Point, mode: SelectMode) {
+    if ed.press(p, mode) {
+        if let Some(w) = win.upgrade() {
+            let c = w.global::<Canvas>();
+            c.set_drag_offset(Vec2 { x: 0.0, y: 0.0 });
+            c.set_drag_angle(0.0);
+            c.set_drag_overlay(slint::Image::from_rgba8(ed.drag_layer.buf.clone()));
+        }
+        push_overlay(win, ed);
+    } else {
+        push_selection(win, ed);
+    }
+}
+
 /// The file name the save dialog suggests: -o's, or a timestamped one.
 fn default_name(output: Option<&Path>) -> String {
     if let Some(name) = output.and_then(|p| p.file_name()) {
@@ -291,18 +306,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 SelectionMode::Add => SelectMode::Add,
                 SelectionMode::Remove => SelectMode::Remove,
             };
+            press(&win, &mut ed.borrow_mut(), (x, y), mode);
+        }
+    });
+
+    // drawing tools: a press on the selection (e.g. the shape just drawn)
+    // moves, scales or rotates it; anywhere else drops it to draw anew
+    canvas.on_grab({
+        let (ed, win) = (editor.clone(), window.as_weak());
+        move |x, y| {
             let mut ed = ed.borrow_mut();
-            if ed.press((x, y), mode) {
-                if let Some(w) = win.upgrade() {
-                    let c = w.global::<Canvas>();
-                    c.set_drag_offset(Vec2 { x: 0.0, y: 0.0 });
-                    c.set_drag_angle(0.0);
-                    c.set_drag_overlay(slint::Image::from_rgba8(ed.drag_layer.buf.clone()));
-                }
-                push_overlay(&win, &ed);
-            } else {
+            if ed.grabs_selection((x, y)) {
+                press(&win, &mut ed, (x, y), SelectMode::Replace);
+                return true;
+            }
+            if ed.deselect() {
                 push_selection(&win, &ed);
             }
+            false
         }
     });
 

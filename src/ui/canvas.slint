@@ -9,8 +9,11 @@ export global Canvas {
     callback extend(float, float);
     callback end(float, float);
     callback select-begin(float, float, SelectionMode);
+    // drawing tools: a press that grabs the selection instead of drawing;
+    // returns whether it did (otherwise the selection is dropped)
+    callback grab(float, float) -> bool;
     callback commit-text(float, float, string);
-    // select tool: the pointer moved without a button held
+    // the pointer moved without a button held (while something can be selected)
     callback hover(float, float);
 
     in property <string> live-path;

@@ -129,12 +129,15 @@ export component MainWindow inherits Window {
         enabled: Actions.current-tool == Action.select || Actions.current-tool == Action.brush || Actions.current-tool == Action.text || Actions.current-tool == Action.rectangle || Actions.current-tool == Action.circle || Actions.current-tool == Action.arrow;
         // system resize cursors only come in fixed diagonals and theme sizes;
         // the icons below stand in for them, matching rotated boxes
-        mouse-cursor: Actions.current-tool == Action.text ? MouseCursor.text
-            : Actions.current-tool == Action.select ? (Canvas.scale-hover || Canvas.scaling || Canvas.rotate-hover || Canvas.rotating ? MouseCursor.none
-                : Canvas.dragging ? MouseCursor.grabbing : MouseCursor.default)
+        // a fresh shape stays selected under the drawing tools, so its
+        // handles work there too
+        mouse-cursor: Canvas.scale-hover || Canvas.scaling || Canvas.rotate-hover || Canvas.rotating ? MouseCursor.none
+            : Canvas.dragging ? MouseCursor.grabbing
+            : Actions.current-tool == Action.text ? MouseCursor.text
+            : Actions.current-tool == Action.select ? MouseCursor.default
             : MouseCursor.crosshair;
         pointer-event(e) => {
-            if e.kind == PointerEventKind.move && Actions.current-tool == Action.select && !self.pressed {
+            if e.kind == PointerEventKind.move && (Actions.current-tool == Action.select || Canvas.selection.length > 0) && !self.pressed {
                 Canvas.hover(self.mouse-x / 1phx, self.mouse-y / 1phx);
             }
             if e.button == PointerEventButton.left {
@@ -142,19 +145,24 @@ export component MainWindow inherits Window {
                 // the text tool moves focus to its own editor below
                 if e.kind == PointerEventKind.down { keys.focus(); }
                 if e.kind == PointerEventKind.down && Actions.current-tool == Action.text {
-                    // clicking elsewhere commits the previous text and starts a new one
+                    // clicking elsewhere commits the previous text (selecting it),
+                    // then either grabs that selection or starts a new text
                     root.commit-text();
-                    root.text-x = self.mouse-x;
-                    root.text-y = self.mouse-y;
-                    root.typing = true;
-                    text-editor.focus();
+                    if !Canvas.grab(self.mouse-x / 1phx, self.mouse-y / 1phx) {
+                        root.text-x = self.mouse-x;
+                        root.text-y = self.mouse-y;
+                        root.typing = true;
+                        text-editor.focus();
+                    }
                 } else if e.kind == PointerEventKind.down && Actions.current-tool == Action.select {
                     Canvas.select-begin(self.mouse-x / 1phx, self.mouse-y / 1phx,
                         e.modifiers.control ? SelectionMode.remove
                         : e.modifiers.shift ? SelectionMode.add
                         : SelectionMode.replace);
                 } else if e.kind == PointerEventKind.down {
-                    Canvas.begin(self.mouse-x / 1phx, self.mouse-y / 1phx);
+                    if !Canvas.grab(self.mouse-x / 1phx, self.mouse-y / 1phx) {
+                        Canvas.begin(self.mouse-x / 1phx, self.mouse-y / 1phx);
+                    }
                 } else if e.kind == PointerEventKind.up {
                     Canvas.end(self.mouse-x / 1phx, self.mouse-y / 1phx);
                 }
@@ -165,7 +173,7 @@ export component MainWindow inherits Window {
         }
     }
 
-    if Actions.current-tool == Action.select && touch.has-hover && (Canvas.rotate-hover || Canvas.rotating): Image {
+    if touch.has-hover && (Canvas.rotate-hover || Canvas.rotating): Image {
         x: touch.mouse-x - 10px;
         y: touch.mouse-y - 10px;
         width: 20px;
@@ -176,7 +184,7 @@ export component MainWindow inherits Window {
         transform-rotation: (Canvas.rotate-cursor + (Canvas.rotating ? Canvas.drag-angle / 1deg : 0)) * 1deg;
     }
 
-    if Actions.current-tool == Action.select && touch.has-hover && (Canvas.scale-hover || Canvas.scaling): Image {
+    if touch.has-hover && (Canvas.scale-hover || Canvas.scaling): Image {
         x: touch.mouse-x - 10px;
         y: touch.mouse-y - 10px;
         width: 20px;
@@ -329,7 +337,8 @@ export component MainWindow inherits Window {
                     }
                     return reject;
                 }
-                if Actions.current-tool == Action.select {
+                // also under drawing tools, where the shape just drawn is selected
+                if Actions.current-tool == Action.select || Canvas.selection.length > 0 {
                     if event.text == Key.Delete || event.text == Key.Backspace { Actions.dispatch(Action.delete); return accept; }
                     if event.text == Key.Escape { Actions.dispatch(Action.deselect); return accept; }
                 }

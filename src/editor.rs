@@ -137,10 +137,20 @@ impl Editor {
         true
     }
 
-    /// Adds a finished shape to the layer and history.
+    /// Adds a finished shape to the layer and history, and selects it so
+    /// it can be edited right away.
     pub fn commit(&mut self, s: Shape) {
-        let op = Op::Insert(vec![(self.shapes.len(), s)]);
-        self.record(op);
+        let i = self.shapes.len();
+        self.record(Op::Insert(vec![(i, s)]));
+        self.selected = vec![i];
+    }
+
+    /// Whether a press at `p` lands on the selection: inside a selected
+    /// shape's box, on a scale handle, or in a rotate zone.
+    pub fn grabs_selection(&self, p: Point) -> bool {
+        self.scale_zone(p).is_some()
+            || self.rotate_zone(p).is_some()
+            || (self.selected.iter()).any(|&i| self.shapes[i].frame().contains(p, SEL_PAD))
     }
 
     fn rebuild(&mut self) {
