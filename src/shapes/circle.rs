@@ -72,7 +72,9 @@ impl Draw for Circle {
         if let Some(fill) = self.style.fill {
             layer.ellipse_fill(f.center, f.half, f.angle, fill);
         }
-        layer.ellipse(f.center, f.half, f.angle, self.style);
+        if self.style.color.a > 0 {
+            layer.ellipse(f.center, f.half, f.angle, self.style);
+        }
     }
 
     fn hit(&self, p: Point, tol: f32) -> bool {

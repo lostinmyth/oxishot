@@ -200,6 +200,18 @@ export component StylePanel inherits Rectangle {
         : tool == Action.rectangle || tool == Action.circle;
     property <bool> show-width: Styling.has-selection ? Styling.selection-stroked
         : tool != Action.text && tool != Action.blur && tool != Action.eyedropper;
+    // "none" is allowed while the other one still shows the shape; a stroke
+    // only on rectangles and circles, since nothing else has a fill
+    out property <bool> fill-clearable: Styling.stroke.alpha > 0;
+    out property <bool> stroke-clearable: Styling.fill.alpha > 0 && (Styling.has-selection
+        ? Styling.selection-stroke-optional : tool == Action.rectangle || tool == Action.circle);
+    // a new shape without a fill always gets a visible stroke
+    changed tool => {
+        if !Styling.has-selection && Styling.stroke.alpha == 0
+            && tool != Action.rectangle && tool != Action.circle {
+            Styling.stroke = Styling.stroke.with-alpha(1);
+        }
+    }
     property <bool> show-strength: Styling.has-selection ? Styling.selection-blur : tool == Action.blur;
     property <bool> show-font: Styling.has-selection ? Styling.selection-text : tool == Action.text;
 
@@ -372,12 +384,14 @@ component Swatch inherits Rectangle {
 component IconButton inherits Rectangle {
     in property <image> icon;
     in property <bool> active;
+    in property <bool> enabled: true;
     callback clicked();
 
     width: 22px;
     height: 22px;
     border-radius: 5px;
     background: root.active ? #3b82f6 : ta.has-hover ? #ffffff14 : transparent;
+    opacity: root.enabled ? 1 : 0.35;
     animate background { duration: 90ms; }
 
     Image {
@@ -388,6 +402,7 @@ component IconButton inherits Rectangle {
     }
 
     ta := TouchArea {
+        enabled: root.enabled;
         mouse-cursor: pointer;
         clicked => { root.clicked(); }
     }
@@ -396,6 +411,8 @@ component IconButton inherits Rectangle {
 // Color picker for one Styling field, plus the colors already used.
 export component ColorPopover inherits FocusScope {
     in property <StyleField> field;
+    // the field may be set to none (the shape stays visible without it)
+    in property <bool> clearable;
     // the eyedropper button is on (the window does the picking)
     in property <bool> sampling;
     callback close();
@@ -404,7 +421,8 @@ export component ColorPopover inherits FocusScope {
     callback dragged(length, length);
 
     public function open-with(c: color) {
-        picker.set-color(c);
+        // "none" opens opaque, so picking a color doesn't land on 0 alpha
+        picker.set-color(c.alpha == 0 ? c.with-alpha(1) : c);
         root.focus();
     }
 
@@ -417,6 +435,16 @@ export component ColorPopover inherits FocusScope {
     function set(c: color) {
         if root.field == StyleField.fill { Styling.fill = c; } else { Styling.stroke = c; }
         Styling.preview(root.field);
+    }
+
+    property <color> current: root.field == StyleField.fill ? Styling.fill : Styling.stroke;
+
+    // none; the picker stays opaque so the next edit gives a visible color
+    function clear() {
+        if !root.clearable { return; }
+        root.set(transparent);
+        Styling.commit();
+        picker.set-color(picker.value.with-alpha(1));
     }
 
     // the fill picker's first swatch is "none"
@@ -475,6 +503,13 @@ export component ColorPopover inherits FocusScope {
                     }
 
                     IconButton {
+                        icon: @image-url("../assets/icons/ban.svg");
+                        active: root.current.alpha == 0;
+                        enabled: root.clearable || self.active;
+                        clicked => { root.clear(); }
+                    }
+
+                    IconButton {
                         icon: @image-url("../assets/icons/cancel.svg");
                         clicked => { root.close(); }
                     }
@@ -521,11 +556,8 @@ export component ColorPopover inherits FocusScope {
                     y: 0;
                     value: transparent;
                     active: Styling.fill.alpha == 0;
-                    clicked => {
-                        picker.set-color(transparent);
-                        root.set(transparent);
-                        Styling.commit();
-                    }
+                    clicked => { root.clear(); }
+                    opacity: root.clearable || self.active ? 1 : 0.35;
                 }
 
                 for c[i] in Styling.used-colors: Swatch {

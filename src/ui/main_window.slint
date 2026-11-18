@@ -400,6 +400,7 @@ export component MainWindow inherits Window {
             y: root.popover-moved ? clamp(root.popover-y, 0, parent.height - self.height)
                 : max(8px, min(style-panel.y + style-panel.height + 6px, parent.height - self.height - 8px));
             field: root.picking-field;
+            clearable: self.field == StyleField.fill ? style-panel.fill-clearable : style-panel.stroke-clearable;
             dragged(dx, dy) => { root.drag-popover(dx, dy); }
             sampling: root.sampling;
             toggle-sampling => { root.sampling = !root.sampling; }

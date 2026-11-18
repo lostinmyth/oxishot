@@ -5,6 +5,7 @@ export struct ParsedColor { ok: bool, color: color }
 // Style for new shapes, and the selection's style while one is selected
 // (Rust mirrors the selected shapes' style into it).
 export global Styling {
+    // fully transparent means no stroke (rectangles and circles with a fill)
     in-out property <color> stroke: #ef4444;
     // fully transparent means no fill
     in-out property <color> fill: transparent;
@@ -30,6 +31,8 @@ export global Styling {
     // some selected shape takes a fill / a stroke width
     in property <bool> selection-fillable;
     in property <bool> selection-stroked;
+    // every selected shape with a color also takes a fill
+    in property <bool> selection-stroke-optional;
     in property <bool> selection-text;
     // some selected shape uses the color / is a blur
     in property <bool> selection-colored;

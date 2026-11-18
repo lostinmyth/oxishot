@@ -141,6 +141,8 @@ fn push_style(win: &MainWindow, ed: &Editor) {
     let stroked = shapes.iter().find(|sh| sh.stroked());
     s.set_selection_fillable(fillable.is_some());
     s.set_selection_stroked(stroked.is_some());
+    let colored_all_fillable = shapes.iter().filter(|sh| sh.colored()).all(|sh| sh.fillable());
+    s.set_selection_stroke_optional(colored_all_fillable);
     let colored = shapes.iter().find(|sh| sh.colored());
     s.set_selection_colored(colored.is_some());
     let text = shapes.iter().find(|sh| matches!(sh, Shape::Text(_)));
@@ -335,8 +337,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         move |x, y| {
             let win = win.unwrap();
             let c = win.global::<Canvas>();
-            let style = current_style(&win);
+            let mut style = current_style(&win);
             let tool = win.global::<Actions>().get_current_tool();
+            // no stroke only where a fill keeps the shape visible
+            if style.color.a == 0 && (style.fill.is_none() || !matches!(tool, Action::Rectangle | Action::Circle)) {
+                style.color.a = 255;
+            }
             let Some(shape) = shape_for(tool, (x, y), style) else {
                 return;
             };
@@ -465,6 +471,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let (ed, win) = (editor.clone(), window.as_weak());
         move |x, y, text| {
             let Some(w) = win.upgrade() else { return };
+            let mut style = current_style(&w);
+            if style.color.a == 0 {
+                style.color.a = 255;
+            }
             let shape = Shape::Text(Text {
                 pos: (x, y),
                 text: text.to_string(),
@@ -472,7 +482,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 style: Style {
                     radius: 0.0,
                     fill: None,
-                    ..current_style(&w)
+                    ..style
                 },
             });
             let mut ed = ed.borrow_mut();
@@ -501,8 +511,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ed.resize_live((s.get_width(), s.get_height()))
             } else {
                 ed.restyle_live(|shape, st| match field {
-                    StyleField::Stroke if shape.colored() => st.color = style.color,
-                    StyleField::Fill if shape.fillable() => st.fill = style.fill,
+                    // never both none: a mixed selection may hold shapes
+                    // the panel's values don't describe
+                    StyleField::Stroke if shape.colored() => {
+                        if style.color.a > 0 || (shape.fillable() && st.fill.is_some()) {
+                            st.color = style.color;
+                        }
+                    }
+                    StyleField::Fill if shape.fillable() => {
+                        if style.fill.is_some() || st.color.a > 0 {
+                            st.fill = style.fill;
+                        }
+                    }
                     StyleField::Radius if shape.stroked() => st.radius = style.radius,
                     StyleField::Blur if matches!(shape, Shape::Blur(_)) => st.blur = style.blur,
                     _ if !matches!(shape, Shape::Text(_)) => {}

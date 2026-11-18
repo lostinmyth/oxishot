@@ -65,7 +65,9 @@ impl Draw for Rectangle {
         if let Some(fill) = self.style.fill {
             layer.box_fill(f.center, f.half, f.angle, fill);
         }
-        layer.box_outline(f.center, f.half, f.angle, self.style);
+        if self.style.color.a > 0 {
+            layer.box_outline(f.center, f.half, f.angle, self.style);
+        }
     }
 
     fn hit(&self, p: Point, tol: f32) -> bool {
