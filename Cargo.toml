@@ -3,6 +3,12 @@ name = "oxishot"
 version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0-only"
+description = "A fast, minimal screenshot annotation editor: arrows, boxes, text, blur"
+repository = "https://github.com/lostinmyth/oxishot"
+readme = "README.md"
+keywords = ["screenshot", "annotation", "editor", "image", "slint"]
+categories = ["multimedia::images", "graphics"]
+exclude = [".github/", "packaging/", "image.png"]
 
 [dependencies]
 arboard = { version = "3.7", features = ["wayland-data-control"] }
