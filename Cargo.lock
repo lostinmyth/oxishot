@@ -3226,6 +3226,7 @@ dependencies = [
  "slint",
  "slint-build",
  "swash",
+ "toml_edit",
 ]
 
 [[package]]

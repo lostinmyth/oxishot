@@ -1,9 +1,11 @@
 import { Action, Actions } from "../actions.slint";
 
+import { Settings } from "../settings.slint";
+
 import { ToolbarButton } from "toolbar_button.slint";
 
-// `shortcut` is shown next to the name in the hover tooltip; empty for none
-export struct ToolDef { icon: image, name: string, shortcut: string, action: Action }
+// the tooltip shows `name` and the action's shortcut
+export struct ToolDef { icon: image, name: string, action: Action }
 
 export component Toolbar inherits Rectangle {
     in property <bool> selectable: true;
@@ -73,6 +75,7 @@ export component Toolbar inherits Rectangle {
 
     if root.tip-shown && root.hover-index >= 0: tip := Rectangle {
         property <ToolDef> tool: root.tools[root.hover-index];
+        property <string> shortcut: Settings.label(self.tool.action, Settings.version);
         property <length> button-center: root.pad + root.hover-index * (root.button-size + root.gap) + root.button-size / 2;
         // centered on the button, but kept 4px inside the window
         property <length> min-x: 4px - root.absolute-position.x;
@@ -105,8 +108,8 @@ export component Toolbar inherits Rectangle {
                 vertical-alignment: center;
             }
 
-            if tip.tool.shortcut != "": Text {
-                text: tip.tool.shortcut;
+            if tip.shortcut != "": Text {
+                text: tip.shortcut;
                 color: #a1a1aa;
                 font-size: 12px;
                 vertical-alignment: center;

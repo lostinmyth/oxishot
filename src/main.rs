@@ -2,10 +2,13 @@ mod configuration;
 mod editor;
 mod export;
 mod raster;
+mod settings;
 mod shapes;
 mod utils;
 
 use configuration::args::{Input, parse_args};
+use configuration::config::Config;
+use settings::SettingsUi;
 use editor::{Bounds, Editor, SelectMode};
 use shapes::{
     arrow::Arrow,
@@ -16,10 +19,10 @@ use shapes::{
     text::{self, Font, Text},
 };
 use parley::fontique::FamilyId;
-use slint::{ModelRc, Rgba8Pixel, SharedString, VecModel};
+use slint::{ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel};
 use std::{
     cell::RefCell,
-    path::Path,
+    path::{Path, PathBuf},
     rc::Rc,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -221,6 +224,36 @@ fn default_name(output: Option<&Path>) -> String {
     format!("oxishot-{secs}.png")
 }
 
+/// Where Save writes without asking, if the config says so: -o's path, or
+/// the save directory.
+fn direct_path(output: Option<&Path>, config: &Config) -> Option<PathBuf> {
+    if !config.skip_dialog {
+        return None;
+    }
+    match output {
+        Some(p) if p.is_dir() => Some(p.join(default_name(None))),
+        Some(p) => Some(p.to_path_buf()),
+        None => Some(config.save_dir()?.join(default_name(None))),
+    }
+}
+
+/// Saves `img` to `path` (making its directory if needed) and quits.
+fn save_and_quit(img: &SharedPixelBuffer<Rgba8Pixel>, path: &Path) {
+    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+        if let Err(e) = std::fs::create_dir_all(dir) {
+            eprintln!("could not create {}: {e}", dir.display());
+            return;
+        }
+    }
+    match export::save_png(img, path) {
+        Ok(()) => {
+            eprintln!("saved to {}", path.display());
+            let _ = slint::quit_event_loop();
+        }
+        Err(e) => eprintln!("could not save {}: {e}", path.display()),
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(target_os = "linux")]
     {
@@ -248,6 +281,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         window.get_view_width(),
         window.get_view_height(),
     ));
+
+    let (config, errors) = Config::load();
+    for e in &errors {
+        eprintln!("config: {e}");
+    }
+    let settings = SettingsUi::install(&window, config);
 
     let actions = window.global::<Actions>();
     let editor = Rc::new(RefCell::new(Editor::new(base.clone())));
@@ -282,31 +321,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         push_selection(&win, &ed);
                     }
                 }
+                Action::Settings => {
+                    if let Some(w) = win.upgrade() {
+                        settings.show(&w);
+                    }
+                }
                 Action::Save => {
                     // snapshot now; the dialog runs without blocking the UI
                     let img = raster::flatten(&base, &ed.layer.buf);
+                    let config = settings.config.borrow();
+                    if let Some(path) = direct_path(output.as_deref(), &config) {
+                        save_and_quit(&img, &path);
+                        return;
+                    }
                     let mut dialog = rfd::AsyncFileDialog::new()
                         .add_filter("PNG image", &["png"])
                         .set_file_name(default_name(output.as_deref()));
-                    if let Some(dir) = output.as_deref().and_then(|p| p.parent()) {
-                        if !dir.as_os_str().is_empty() {
-                            dialog = dialog.set_directory(dir);
-                        }
+                    let start = output
+                        .as_deref()
+                        .and_then(|p| p.parent())
+                        .filter(|d| !d.as_os_str().is_empty())
+                        .map(Path::to_path_buf)
+                        .or_else(|| config.save_dir().filter(|d| d.is_dir()));
+                    if let Some(dir) = start {
+                        dialog = dialog.set_directory(dir);
                     }
                     if let Some(w) = win.upgrade() {
                         dialog = dialog.set_parent(&w.window().window_handle());
                     }
                     let _ = slint::spawn_local(async move {
-                        let Some(file) = dialog.save_file().await else {
-                            return;
-                        };
-                        let path = file.path();
-                        match export::save_png(&img, path) {
-                            Ok(()) => {
-                                eprintln!("saved to {}", path.display());
-                                let _ = slint::quit_event_loop();
-                            }
-                            Err(e) => eprintln!("could not save {}: {e}", path.display()),
+                        if let Some(file) = dialog.save_file().await {
+                            save_and_quit(&img, file.path());
                         }
                     });
                 }

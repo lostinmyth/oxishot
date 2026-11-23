@@ -1,0 +1,322 @@
+import { ListView } from "std-widgets.slint";
+import { Action } from "actions.slint";
+import { IconButton } from "style_panel.slint";
+
+// One action's shortcuts as the dialog shows them; `conflict`: another
+// action has one of them too
+export struct Binding { name: string, keys: string, conflict: bool }
+
+// The action a key press triggers, if `ok`
+export struct Shortcut { ok: bool, action: Action }
+
+// The config file, and the settings dialog's draft of it. The dialog edits
+// the properties; `apply` writes them to the file.
+export global Settings {
+    in-out property <bool> shown;
+    in-out property <string> directory;
+    in-out property <bool> skip-dialog;
+    in property <[Binding]> bindings;
+    // the config file
+    in property <string> path;
+    // what's wrong with the file, or why it couldn't be written
+    in property <string> error;
+    // bumped whenever the shortcuts in use change
+    in property <int> version;
+
+    callback apply();
+    callback browse();
+    callback edit-file();
+    // a key press for binding `i`; false if it can't be a shortcut (a lone modifier)
+    callback capture(int, string, bool, bool, bool) -> bool;
+    callback clear-binding(int);
+
+    // the action of a key press (text, ctrl, alt, shift)
+    callback shortcut(string, bool, bool, bool) -> Shortcut;
+    // the shortcut shown for an action; pass `version` so it updates
+    pure callback label(Action, int) -> string;
+}
+
+component Button inherits Rectangle {
+    in property <string> text;
+    in property <bool> primary;
+    callback clicked();
+
+    height: 26px;
+    min-width: max(64px, label.preferred-width + 20px);
+    horizontal-stretch: 0;
+    border-radius: 5px;
+    background: root.primary ? (ta.has-hover ? #2563eb : #3b82f6) : ta.has-hover ? #ffffff1f : #ffffff0f;
+    border-width: 1px;
+    border-color: root.primary ? transparent : #ffffff14;
+    animate background { duration: 90ms; }
+
+    label := Text {
+        text: root.text;
+        font-size: 12px;
+        color: #fafafa;
+    }
+
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+component TextField inherits Rectangle {
+    in-out property <string> text <=> input.text;
+    in property <string> placeholder;
+
+    height: 26px;
+    border-radius: 5px;
+    background: ta.has-hover || input.has-focus ? #ffffff14 : #ffffff0a;
+    border-width: 1px;
+    border-color: input.has-focus ? #3b82f6 : #ffffff0f;
+
+    ta := TouchArea {
+        mouse-cursor: MouseCursor.text;
+        clicked => { input.focus(); }
+    }
+
+    if input.text == "": Text {
+        x: 7px;
+        text: root.placeholder;
+        font-size: 12px;
+        color: #71717a;
+        vertical-alignment: center;
+    }
+
+    input := TextInput {
+        x: 7px;
+        width: parent.width - 14px;
+        single-line: true;
+        vertical-alignment: center;
+        font-size: 12px;
+        color: #fafafa;
+        selection-background-color: #3b82f680;
+    }
+}
+
+component Check inherits Rectangle {
+    in-out property <bool> checked;
+    in property <string> text;
+
+    height: 22px;
+
+    Rectangle {
+        x: 0;
+        y: (parent.height - self.height) / 2;
+        width: 16px;
+        height: 16px;
+        border-radius: 4px;
+        background: root.checked ? #3b82f6 : ta.has-hover ? #ffffff14 : #ffffff0a;
+        border-width: 1px;
+        border-color: root.checked ? #3b82f6 : #ffffff33;
+
+        if root.checked: Path {
+            width: 16px;
+            height: 16px;
+            viewbox-width: 16;
+            viewbox-height: 16;
+            commands: "M 4 8.5 L 7 11.5 L 12.5 5";
+            stroke: white;
+            stroke-width: 1.75px;
+            stroke-line-cap: round;
+            stroke-line-join: round;
+        }
+    }
+
+    Text {
+        x: 24px;
+        width: parent.width - self.x;
+        text: root.text;
+        font-size: 12px;
+        color: #fafafa;
+        vertical-alignment: center;
+    }
+
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.checked = !root.checked; }
+    }
+}
+
+component Heading inherits Text {
+    font-size: 11px;
+    font-weight: 600;
+    color: #a1a1aa;
+}
+
+// Edits the config: the save folder and the shortcuts. Click a shortcut,
+// then press the new one; Escape cancels that (and otherwise the dialog).
+export component SettingsDialog inherits FocusScope {
+    callback close();
+
+    // the binding waiting for a key press, -1 for none
+    property <int> capturing: -1;
+
+    key-pressed(e) => {
+        if e.text == Key.Escape {
+            if root.capturing >= 0 { root.capturing = -1; } else { root.close(); }
+            return accept;
+        }
+        if root.capturing >= 0 {
+            if Settings.capture(root.capturing, e.text, e.modifiers.control, e.modifiers.alt, e.modifiers.shift) {
+                root.capturing = -1;
+            }
+            return accept;
+        }
+        reject
+    }
+
+    // dims the window and keeps clicks off it
+    Rectangle {
+        background: #00000080;
+        TouchArea { clicked => { root.capturing = -1; } }
+    }
+
+    Rectangle {
+        width: min(380px, root.width - 16px);
+        height: min(620px, root.height - 16px);
+        background: #18181bf7;
+        border-radius: 10px;
+        border-width: 1px;
+        border-color: #ffffff14;
+        drop-shadow-blur: 24px;
+        drop-shadow-offset-y: 6px;
+        drop-shadow-color: #00000090;
+
+        TouchArea { clicked => { root.capturing = -1; } }
+
+        VerticalLayout {
+            padding: 14px;
+            spacing: 8px;
+
+            HorizontalLayout {
+                Text {
+                    text: "Settings";
+                    font-size: 14px;
+                    font-weight: 600;
+                    color: #fafafa;
+                    vertical-alignment: center;
+                }
+
+                IconButton {
+                    icon: @image-url("../assets/icons/cancel.svg");
+                    clicked => { root.close(); }
+                }
+            }
+
+            Heading { text: "Saving"; }
+
+            HorizontalLayout {
+                spacing: 6px;
+                TextField {
+                    text <=> Settings.directory;
+                    placeholder: "Ask every time";
+                }
+
+                Button {
+                    text: "Browse…";
+                    clicked => { Settings.browse(); }
+                }
+            }
+
+            Check {
+                text: "Save to this folder without asking";
+                checked <=> Settings.skip-dialog;
+            }
+
+            Rectangle {
+                height: 1px;
+                background: #ffffff14;
+            }
+
+            Heading { text: "Shortcuts"; }
+
+            ListView {
+                vertical-stretch: 1;
+                for b[i] in Settings.bindings: Rectangle {
+                    property <bool> active: root.capturing == i;
+                    height: 28px;
+
+                    Text {
+                        x: 2px;
+                        text: b.name;
+                        font-size: 12px;
+                        color: #d4d4d8;
+                        vertical-alignment: center;
+                    }
+
+                    Rectangle {
+                        x: parent.width - self.width - 16px;
+                        width: 150px;
+                        height: 24px;
+                        border-radius: 5px;
+                        background: active ? #3b82f61f : kta.has-hover ? #ffffff14 : #ffffff0a;
+                        border-width: 1px;
+                        border-color: active ? #3b82f6 : b.conflict ? #f59e0b : #ffffff0f;
+
+                        Text {
+                            x: 7px;
+                            width: parent.width - 30px;
+                            text: active ? "Press a shortcut…" : b.keys == "" ? "None" : b.keys;
+                            font-size: 12px;
+                            overflow: elide;
+                            color: active ? #93c5fd : b.keys == "" ? #71717a : b.conflict ? #fbbf24 : #fafafa;
+                            vertical-alignment: center;
+                        }
+
+                        kta := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                root.capturing = active ? -1 : i;
+                                root.focus();
+                            }
+                        }
+
+                        if b.keys != "" && !active: IconButton {
+                            x: parent.width - self.width - 1px;
+                            icon: @image-url("../assets/icons/cancel.svg");
+                            clicked => { Settings.clear-binding(i); }
+                        }
+                    }
+                }
+            }
+
+            if Settings.error != "": Text {
+                text: Settings.error;
+                font-size: 11px;
+                color: #f87171;
+                wrap: word-wrap;
+            }
+
+            HorizontalLayout {
+                spacing: 6px;
+                Button {
+                    text: "Open config file";
+                    clicked => { Settings.edit-file(); }
+                }
+
+                Rectangle { }
+
+                Button {
+                    text: "Cancel";
+                    clicked => { root.close(); }
+                }
+
+                Button {
+                    text: "Save";
+                    primary: true;
+                    clicked => { Settings.apply(); }
+                }
+            }
+
+            Text {
+                text: Settings.path;
+                font-size: 10px;
+                color: #71717a;
+                overflow: elide;
+            }
+        }
+    }
+}

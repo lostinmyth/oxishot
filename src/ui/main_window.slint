@@ -4,14 +4,39 @@ import { Action, Actions } from "actions.slint";
 import { Canvas, SelectionMode } from "canvas.slint";
 import { StylePanel, ColorPopover, FontPopover, WeightPopover } from "style_panel.slint";
 import { Styling, StyleField } from "styling.slint";
+import { Settings, SettingsDialog } from "settings.slint";
 
 export { Actions, Action } from "./actions.slint";
 export { Canvas, SelectionBox, Vec2, SelectionMode } from "canvas.slint";
 export { Styling, StyleField, ParsedColor } from "styling.slint";
+export { Settings, Binding, Shortcut } from "settings.slint";
 
 export component MainWindow inherits Window {
     in property <image> img;
     forward-focus: keys;
+
+    // the settings dialog takes over until closed; then shortcuts work again
+    property <bool> settings-shown: Settings.shown;
+    changed settings-shown => {
+        if self.settings-shown {
+            root.commit-text();
+            root.close-picker();
+        } else {
+            keys.focus();
+        }
+    }
+
+    // a shortcut from the config was pressed
+    function run(a: Action) {
+        if a == Action.select-all {
+            Actions.current-tool = Action.select;
+        } else if a == Action.select || a == Action.brush || a == Action.text || a == Action.rectangle
+            || a == Action.circle || a == Action.arrow || a == Action.blur || a == Action.eyedropper {
+            Actions.current-tool = a;
+            return;
+        }
+        Actions.dispatch(a);
+    }
 
     // text tool: where the pending TextInput sits and whether it's open
     property <bool> typing;
@@ -282,8 +307,8 @@ export component MainWindow inherits Window {
         selectable: false;
         view-width: parent.width;
         tools: [
-            { icon: @image-url("../assets/icons/undo.svg"), name: "Undo", shortcut: "Ctrl+Z", action: Action.undo },
-            { icon: @image-url("../assets/icons/redo.svg"), name: "Redo", shortcut: "Ctrl+Y", action: Action.redo },
+            { icon: @image-url("../assets/icons/undo.svg"), name: "Undo", action: Action.undo },
+            { icon: @image-url("../assets/icons/redo.svg"), name: "Redo", action: Action.redo },
         ];
     }
 
@@ -293,10 +318,10 @@ export component MainWindow inherits Window {
         selectable: false;
         view-width: parent.width;
         tools: [
-            { icon: @image-url("../assets/icons/settings.svg"), name: "Settings", shortcut: "", action: Action.settings },
-            { icon: @image-url("../assets/icons/save.svg"), name: "Save", shortcut: "Ctrl+S", action: Action.save },
-            { icon: @image-url("../assets/icons/copy.svg"), name: "Copy", shortcut: "Ctrl+C", action: Action.copy },
-            { icon: @image-url("../assets/icons/cancel.svg"), name: "Exit", shortcut: "", action: Action.exit },
+            { icon: @image-url("../assets/icons/settings.svg"), name: "Settings", action: Action.settings },
+            { icon: @image-url("../assets/icons/save.svg"), name: "Save", action: Action.save },
+            { icon: @image-url("../assets/icons/copy.svg"), name: "Copy", action: Action.copy },
+            { icon: @image-url("../assets/icons/cancel.svg"), name: "Exit", action: Action.exit },
         ];
     }
 
@@ -333,34 +358,34 @@ export component MainWindow inherits Window {
         tools: [
             {
                 icon: @image-url("../assets/icons/mouse-pointer.svg"),
-                name: "Select", shortcut: "V",
+                name: "Select",
                 action: Action.select
             },
-            { icon: @image-url("../assets/icons/brush.svg"), name: "Brush", shortcut: "B", action: Action.brush },
+            { icon: @image-url("../assets/icons/brush.svg"), name: "Brush", action: Action.brush },
             {
                 icon: @image-url("../assets/icons/square-dashed-text.svg"),
-                name: "Text", shortcut: "T",
+                name: "Text",
                 action: Action.text
             },
             {
                 icon: @image-url("../assets/icons/square.svg"),
-                name: "Rectangle", shortcut: "R",
+                name: "Rectangle",
                 action: Action.rectangle
             },
             {
                 icon: @image-url("../assets/icons/circle.svg"),
-                name: "Circle", shortcut: "O",
+                name: "Circle",
                 action: Action.circle
             },
             {
                 icon: @image-url("../assets/icons/move-up-right.svg"),
-                name: "Arrow", shortcut: "A",
+                name: "Arrow",
                 action: Action.arrow
             },
-            { icon: @image-url("../assets/icons/blur.svg"), name: "Blur", shortcut: "U", action: Action.blur },
+            { icon: @image-url("../assets/icons/blur.svg"), name: "Blur", action: Action.blur },
             {
                 icon: @image-url("../assets/icons/eyedropper.svg"),
-                name: "Eyedropper", shortcut: "I",
+                name: "Eyedropper",
                 action: Action.eyedropper
             },
         ];
@@ -426,31 +451,26 @@ export component MainWindow inherits Window {
         keys := FocusScope {
             focus-on-click: false;
             key-pressed(event) => {
-                if event.modifiers.control {
-                    if event.text == "z" { Actions.dispatch(Action.undo); return accept; }
-                    if event.text == "y" { Actions.dispatch(Action.redo); return accept; }
-                    if event.text == "s" { Actions.dispatch(Action.save); return accept; }
-                    if event.text == "c" { Actions.dispatch(Action.copy); return accept; }
-                    if event.text == "a" {
-                        Actions.current-tool = Action.select;
-                        Actions.dispatch(Action.select-all);
-                        return accept;
-                    }
+                // Escape isn't configurable: it always deselects
+                if event.text == Key.Escape && Actions.current-tool == Action.select {
+                    Actions.dispatch(Action.deselect);
+                    return accept;
+                }
+                let hit = Settings.shortcut(event.text, event.modifiers.control, event.modifiers.alt, event.modifiers.shift);
+                if !hit.ok { return reject; }
+                // deleting only acts on the select tool's selection
+                if hit.action == Action.delete && Actions.current-tool != Action.select {
                     return reject;
                 }
-                if Actions.current-tool == Action.select {
-                    if event.text == Key.Delete || event.text == Key.Backspace { Actions.dispatch(Action.delete); return accept; }
-                    if event.text == Key.Escape { Actions.dispatch(Action.deselect); return accept; }
-                }
-                if event.text == "v" { Actions.current-tool = Action.select; return accept; }
-                if event.text == "b" { Actions.current-tool = Action.brush; return accept; }
-                if event.text == "t" { Actions.current-tool = Action.text; return accept; }
-                if event.text == "r" { Actions.current-tool = Action.rectangle; return accept; }
-                if event.text == "o" { Actions.current-tool = Action.circle; return accept; }
-                if event.text == "a" { Actions.current-tool = Action.arrow; return accept; }
-                if event.text == "u" { Actions.current-tool = Action.blur; return accept; }
-                if event.text == "i" { Actions.current-tool = Action.eyedropper; return accept; }
-                reject
+                root.run(hit.action);
+                accept
             }
+        }
+
+        if Settings.shown: SettingsDialog {
+            width: root.width;
+            height: root.height;
+            init => { self.focus(); }
+            close => { Settings.shown = false; }
         }
     }

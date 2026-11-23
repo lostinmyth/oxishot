@@ -10,6 +10,7 @@ parley = "0.11.1"
 png = "0.18"
 rfd = "0.18"
 swash = "0.2.10"
+toml_edit = "0.25"
 slint = { version = "1.18.1", features = ["raw-window-handle-06"] }
 
 [build-dependencies]
