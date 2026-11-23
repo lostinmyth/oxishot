@@ -1,0 +1,44 @@
+# Maintainer: lostinmyth <your-email-here>
+pkgname=oxishot
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Fast, minimal screenshot annotation tool"
+arch=('x86_64' 'aarch64')
+url="https://github.com/lostinmyth/oxishot"
+license=('GPL-3.0-only')
+depends=('gcc-libs' 'glibc' 'fontconfig' 'freetype2' 'libxkbcommon' 'wayland' 'libglvnd')
+makedepends=('cargo')
+optdepends=('xdg-desktop-portal: save and folder dialogs'
+            'libxkbcommon-x11: X11 support'
+            'libxcursor: X11 support'
+            'grim: Wayland screenshots'
+            'slurp: Wayland region selection'
+            'maim: X11 screenshots')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP') # run `updpkgsums` after tagging the release
+
+prepare() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo build --frozen --release
+}
+
+check() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo test --frozen --release
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  install -Dm755 "target/release/$pkgname" "$pkgdir/usr/bin/$pkgname"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+  install -Dm644 docs/configuration.md "$pkgdir/usr/share/doc/$pkgname/configuration.md"
+}
