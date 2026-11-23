@@ -18,14 +18,7 @@ pub fn parse_args() -> Result<Args, lexopt::Error> {
 
     while let Some(arg) = p.next()? {
         match arg {
-            Short('i') | Long("input") => {
-                let v = p.value()?;
-                input = Some(if v == "-" {
-                    Input::Stdin
-                } else {
-                    Input::Path(v.into())
-                })
-            }
+            Short('i') | Long("input") => input = Some(parse_input(p.value()?)),
             Short('o') | Long("output") => {
                 output = Some(p.value()?.into());
             }
@@ -37,7 +30,7 @@ pub fn parse_args() -> Result<Args, lexopt::Error> {
                 println!("oxishot {}", env!("CARGO_PKG_VERSION"));
                 std::process::exit(0)
             }
-            Value(v) if input.is_none() => input = Some(Input::Path(v.into())),
+            Value(v) if input.is_none() => input = Some(parse_input(v)),
             _ => return Err(arg.unexpected()),
         }
     }
@@ -52,6 +45,14 @@ pub fn parse_args() -> Result<Args, lexopt::Error> {
     });
 
     Ok(Args { input, output })
+}
+
+fn parse_input(v: std::ffi::OsString) -> Input {
+    if v == "-" {
+        Input::Stdin
+    } else {
+        Input::Path(v.into())
+    }
 }
 
 fn print_help(bin: &str) {
